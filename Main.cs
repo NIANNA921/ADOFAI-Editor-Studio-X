@@ -1,0 +1,555 @@
+﻿using System;
+using System.Reflection;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityModManagerNet;
+using ModEntry = UnityModManagerNet.UnityModManager.ModEntry;
+using ModLogger = UnityModManagerNet.UnityModManager.ModEntry.ModLogger;
+using ModSettings = UnityModManagerNet.UnityModManager.ModSettings;
+
+namespace ADOFAIEditorStudio
+{
+    public static class Main
+    {
+        public static ModEntry Mod { get; private set; }
+        public static ModLogger Logger { get; private set; }
+        public static Settings Settings { get; private set; }
+        public static EditorStudioOverlay Overlay { get; private set; }
+
+        /// <summary>
+        /// 逐动作探针日志的开关：`Settings.xml` 里的 VerboseDiagnostics。
+        ///
+        /// 这些日志每条对应一次用户动作（点一格、翻一页、起播一次），不是每帧，
+        /// 排查时非常有用；对正常使用纯属噪声，所以统一挂在这个开关后面。
+        /// </summary>
+        internal static bool VerboseLog
+        {
+            get { return Logger != null && Settings != null && Settings.VerboseDiagnostics; }
+        }
+
+        public static void Load(ModEntry modEntry)
+        {
+            Mod = modEntry;
+            Logger = modEntry.Logger;
+            Settings = ModSettings.Load<Settings>(modEntry);
+            // **主题必须在建任何 UI 之前定下来。** 颜色是建控件那一刻读进去的，
+            // 之后改 `UiTheme.Current` 不会让已经建好的控件变色。
+            Ui.UiTheme.Select(Ui.UiTheme.ById(Settings.UiThemeId) ?? Ui.UiTheme.Studio);
+            modEntry.OnToggle = OnToggle;
+            modEntry.OnUnload = OnUnload;
+            EditorPlaybackBridge.InstallInputPatch();
+            // 版本闸门。低于清单要求的 min 就自动下载新版、
+            // 覆盖、重启游戏，用户不用做任何事。
+            // AESX 是独立分支：不再走上游 AES 的自动更新清单，避免被官方包覆盖。
+            // 需要自动更新时，接 AESX 自己的 version.json 清单。
+            // VersionGate.Check(modEntry);
+            // 清掉上一次崩溃留下的联机会话副本。
+            Multiplayer.ChartTransfer.SweepLeftoversInBackground();
+        }
+
+        /// <summary>
+        /// mod 被卸载（关游戏也走这条）：**把没存的布局静默写一份**。
+        ///
+        /// 这里**弹不出 UI** —— 退出流程里没人看得到窗口。所以只能直接保存。
+        /// 总比"在时间轴上摆了一晚上、关游戏全丢"好。
+        ///
+        /// 用户按过 `Ctrl+Alt+S`（或者菜单里的「保存工程」）的话这儿是空操作 ——
+        /// 只有真存在未保存改动时才写。
+        /// </summary>
+        private static bool OnUnload(ModEntry modEntry)
+        {
+            // 同上：关游戏也要把物理模式还给引擎。
+            PhysicsStepSuppressor.ForceRestore();
+            try
+            {
+                EditorStudioOverlay overlay = Overlay;
+                if (overlay != null)
+                {
+                    overlay.SaveProjectBeforeQuit();
+                }
+            }
+            catch (Exception exception)
+            {
+                if (Logger != null)
+                {
+                    Logger.Warning("[工程] 关游戏前自动保存失败：" + exception.Message);
+                }
+            }
+            return true;   // 返回 true 表示"可以卸载"
+        }
+
+        private static bool OnToggle(ModEntry modEntry, bool toggle)
+        {
+            if (toggle)
+            {
+                if (Settings == null)
+                {
+                    Settings = ModSettings.Load<Settings>(modEntry);
+                }
+
+                if (Overlay == null)
+                {
+                    var host = new GameObject("ADOFAIEditorStudio.Host");
+                    UnityEngine.Object.DontDestroyOnLoad(host);
+                    Overlay = host.AddComponent<EditorStudioOverlay>();
+
+                    // 编辑器左下角那颗「打开工作台」的按钮：自己一块画布，
+                    // 位置和配色都照原生底栏那一排小按钮。
+                    AesOpenButton.Install(host.transform);
+                }
+
+                Overlay.Configure(Settings);
+
+                // 三个记录器是排查轨道/行星问题的调试仪器(行星角度 / 相机路径 / 球轨迹),
+                // 会各自 Harmony patch 一个游戏方法。它们只在按下热键后才写文件,输出也没有
+                // 任何代码在读,所以默认不挂载 —— 对一个公开发布的 mod 来说,无条件 patch
+                // 游戏方法只为产出没人看的日志是不合适的。
+                //
+                // 需要诊断时把 Settings.xml 里的 VerboseDiagnostics 打开即可,热键与之前相同
+                // (行星角度 Ctrl+Shift+A,相机路径 Ctrl+Shift+C)。
+                if (Settings.VerboseDiagnostics)
+                {
+                    PlanetAngleRecorder.Ensure();
+                    CameraPathRecorder.Ensure();
+                    // 轨道逐帧记录器：把每一格的实际位置/旋转/缩放/透明度写 CSV，
+                    // 原版和 AES 各跑一遍同一段就能逐帧对比。查「散开之后回不来」
+                    // 这类动画问题时用它取证。热键 Ctrl+Shift+T。
+                    TrackFrameRecorder.Ensure();
+                    TrackFrameRecorder.WatchRange(
+                        Settings.TrackRecordFirstFloor,
+                        Settings.TrackRecordLastFloor);
+                    // 球轨迹记录器：逐帧写下每颗球**各自**的位置，用来查长按里
+                    // 那颗球的轨迹和双球角度差。它 patch 的是 scrPlanet.LateUpdate，
+                    // 输出 CSV 会长到几百 MB，所以和上面两个一样只在诊断开关
+                    // 打开时挂载。双球角度那条还没收，需要时把 Settings.xml 里的
+                    // VerboseDiagnostics 打开即可。
+                    PlanetTrajectoryRecorder.Ensure();
+                }
+
+                Logger.Log("ADOFAI Editor Studio X " + Mod.Version + " loaded");
+            }
+            else
+            {
+                SaveSettings();
+
+                // **先把物理模式还原。** 我们接管的是引擎的全局状态，
+                // mod 不再管事了就不能把它留在"物理永不步进"上。
+                PhysicsStepSuppressor.ForceRestore();
+
+                // 模组被卸载时把联机会话收干净：删掉会话副本、
+                // 断开连接。不做的话那个副本会一直留在谱面目录里。
+                Multiplayer.MultiplayerSession.Stop();
+
+                if (Overlay != null)
+                {
+                    UnityEngine.Object.Destroy(Overlay.gameObject);
+                    Overlay = null;
+                }
+            }
+
+            return true;
+        }
+
+        internal static void SaveSettings()
+        {
+            if (Settings != null && Mod != null)
+            {
+                ModSettings.Save(Settings, Mod);
+            }
+        }
+    }
+
+    public class Settings : ModSettings
+    {
+        public bool LockPreviewZoom = true;
+        // 把预览视图锁在谱面自带的取景上。它与缩放锁分开，
+        // 这样作者可以放开缩放，同时仍让相机停在谱面指定的位置
+        // （反过来也一样）；工具栏用一个按钮同时控制两者。
+        public bool LockPreviewPosition = true;
+        // 对看不见的装饰物跳过每帧的 transform 写入。
+        //
+        // 推送 transform 的开销与它的 CPU 成本不成比例：去掉任意单个
+        // setter 没带来任何变化，而整个去掉一个装饰物的写入块，
+        // 在密集谱面上大约回收了 50ms。开销来自 Unity 对被动过对象的延迟
+        // 处理，每个装饰物只付一次，与改了多少个属性无关。所以真正的
+        // 杠杆是「碰了多少个装饰物」。
+        //
+        // hidden：作者填的 `visible` 标记为隐藏，且当前没有在渲染。
+        // transparent：不透明度为 0。光看作者标记不够——在 Not Too
+        //   Long 谱面上，1253 个装饰物里有 1001 个作者标记为可见，而每帧写入的 646 个里有 490 个
+        //   不透明度是 0。在那里实测：20fps -> 70fps+。
+        //
+        // 不透明度和可见性仍然每帧写入，所以装饰物重新变
+        // 可见或重新变不透明时，会在同一帧就被放到正确位置。
+        public bool CullHiddenDecorations = true;
+        public bool CullTransparentDecorations = true;
+        // 播放时关掉 2D 物理的自动步进（**默认开**）。
+        //
+        // 为什么：播放态下 `固/Physics2DFixedUpdate` 稳定吃 3.7~4.3ms，
+        // 一个 12.8ms 的帧里有三分之一在这里。而场景里 `Rigidbody2D` 是 0 个
+        // （动态、运动学都是 0），反编译游戏本体也证实：`Rigidbody2D` 出现
+        // 0 次、`.Simulate(` 出现 0 次，13 处 `Physics2D.*` 全是查询
+        // （`RaycastAll` / `OverlapPointAll` / `OverlapCircleAll`）。
+        // 查询在 `SimulationMode2D.Script` 下照常工作，被取消的只有"自动步进"。
+        //
+        // 实测：切掉之后同一谱面同一视角，物理 4.0ms -> 0.02ms，
+        // 帧 12.8ms -> 6.9ms，画面与拾取无异常。详见 `PhysicsStepSuppressor`。
+        //
+        // 安全兜底也在这个开关里：场景里只要查出任何刚体就不抑制；
+        // 播放结束、离开编辑器场景、mod 被关掉都会还原成进来之前的模式。
+        // 万一哪里出问题，关掉这一项就完全回到引擎默认行为。
+        public bool SuppressPhysicsStep = true;
+        // 装饰物探针（**默认关**，设置 → 开发者里打开）：预览里一旦有
+        // 「求值说该显示、组件却没画」的装饰物，就往日志写一行
+        // （tag / 图片 / 渲染器 / sprite / mesh）；每 2 秒还有一条汇总。
+        // 这是排查「画面里装饰物不见了」的唯一可靠证据 —— 只看代码分不清
+        // 是求值判了隐藏，还是组件上的图像被清掉了。
+        //
+        // **默认关**的理由：它是诊断工具，不是功能。510 件装饰物的谱面上，
+        // 汇总那一条就是几百个 tag，正式版一直开着等于往玩家日志里灌噪声。
+        // 排查时到设置里打开即可，和其它探针（轨道探针等）保持一致。
+        public bool DecorationProbe = false;
+        // 轨道探针（默认关）：逐 0.5 秒把「当前格 + 几个固定格」的渲染器
+        // 状态写进日志 —— 渲染器开关、屏幕坐标、颜色 alpha、排序层。
+        // 用来区分「轨道被相机甩出屏幕」和「轨道被画成透明/没画」。
+        public bool TrackProbe = false;
+        // 轨道覆盖探针（默认关）：播放头每进入一个新格，就打印**这一格被哪些
+        // MoveTrack 事件覆盖**（起始时刻、时长、范围、不透明度、缓动）。
+        //
+        // 用来回答「这一格为什么和原版不一样」：一条 `duration: 0`、范围铺满
+        // 全谱的 `opacity: 0` 事件，会让那一段轨道在求值器里永久变透明；
+        // 只看画面分不清是哪一条干的，这里能直接点名。
+        //
+        // **默认关**：正常使用纯属噪声；只在排查「某段轨道/装饰物不对」时打开。
+        public bool TrackCoverageProbe = false;
+        // 指针探针（默认关）：左键按下的那一帧，把「指针落在哪、uGUI 是否认为
+        // 指针在 UI 上、时间轴/视口矩形各在哪」写成一行日志。
+        //
+        // 用途：拖时间轴顶边时点穿选中了装饰物。原生 `scnEditor.HandleMouseActions`
+        // 用 `EventSystem.current.IsPointerOverGameObject()` 决定要不要走选中那条路
+        // （反编译 44294 / 44501 行），所以真正要量的是**那一帧该值为真还是假**，
+        // 只看我们自己的矩形判定推不出来。
+        //
+        // **默认关**：它挂在每帧的按下上，正常使用每次点击都会打一行。
+        public bool PointerProbe = false;
+        // 轨道求值走哪套实现。
+        //
+        // true（默认）：新实现——MoveTrack 事件和出现/消失动画进同一张
+        //   时间表，每格六个通道独立求值，没有跨帧状态。
+        // false：旧的 MoveTrack + AnimateTrack 两域实现，靠让位规则协调。
+        //
+        // 留着这个开关是为了出问题时能一键切回去对照。新实现跑通几个版本
+        // 之后可以删掉。
+        public bool UseNativeTrackDomain = true;
+        // 轨道逐帧记录的观察窗口（设置 → 开发者）。
+        //
+        // 记录器把每格的位置/旋转/缩放/透明度写进 track-frames.csv，
+        // 原版和 AES 各跑一遍同一段就能逐帧比对。大谱面全记会把文件撑到
+        // 几个 GB，所以给一个格号区间；两个都填 -1 表示全记录。
+        public int TrackRecordFirstFloor = -1;
+        public int TrackRecordLastFloor = -1;
+        // 时间轴定位以原生引擎优先。旧的静态求值器
+        // 只作为兼容回退保留，不是默认路径。
+        public bool UseStaticTimelineEvaluation = false;
+        public bool UseLegacyTimelineScrubFallback = false;
+        // 输出 [AudioSync] / [PlanetState] / [VfxQueue] / [ConductorState]
+        // 这些 trace，用来诊断「拖动定位后再恢复播放」的缺陷。默认关闭：它们
+        // 很吵，只在排查特定播放问题时才需要。
+        public bool VerboseDiagnostics = false;
+
+        // 帧率跳动日志（**默认关**，设置 → 开发者里打开）：每秒往日志写三行，
+        // 每行带本段平均帧率、平均帧耗时、最差帧、掉帧计数、当前格、
+        // 当前时间、播放状态和工作台是否可见。
+        //
+        // 它和 `VerboseDiagnostics` 是两件事，不要合并：
+        // 那份报表是「120 帧 / 2 秒一行」的，按整段平均 —— 一个窗口里
+        // 有 3 帧掉到 40ms，平均只多 1ms，报表上完全看不出来。而做谱时
+        // 最难受的就是抖动。这一份用 1/3 秒的窗口，专门看抖动。
+        //
+        // **默认关**：三行一秒对正常使用是噪声，排查时才需要。
+        public bool FrameRateLog = false;
+
+        // 预览时**完全不应用装饰物遮罩**。默认关：遮罩已改为只对屏幕内的
+        // 装饰物生效，常态下开销可接受。只有当某张谱遮罩极多、帧率仍不够时，
+        // 才需要打开它彻底关掉遮罩。
+        //
+        // 遮罩一旦生效，原生会对每件带遮罩的装饰物逐帧重合成一张 RT
+        // （`ApplyAlphaMaskToRT`）。杪夏这类谱在上百件遮罩同时可见时，
+        // 单帧要 200ms 以上，帧率掉到 4 帧。关掉后这些装饰物按普通贴图画，
+        // 代价是「该被遮住的部分会露出来」。
+        public bool SimplifyDecorationMasks = false;
+
+        // ── uGUI 迁移：已经全部完成 ─────────────────────────────────────
+        //
+        // 原来的规则是「迁完一块就删掉对应的 ImGui 实现与开关，最终成品里不再有
+        // ImGui」。2026-10-24 收尾：最后四扇窗（说明 / 版本说明 / 创建工程 /
+        // 悬浮球）都换成了 uGUI，`EditorImGuiBridge`、`EditorImGuiDraw` 与
+        // ImGui.NET 依赖已整体删除。
+
+        // 预览时用**老的 SpriteMask 管线**（`disableV15Features = true`）。
+        //
+        // 原生两套遮罩实现：V15 那套对每件可见遮罩件逐帧重合成 RT（贵到 4 帧），
+        // 老那套只是切 `spriteRenderer.enabled` / `spriteMask.enabled`（几乎免费）。
+        // 老管线的代价是不支持「自定义遮罩深度」，但预览里那点差异基本看不出。
+        public bool UseLegacySpriteMask = true;
+
+        // 上一次「看过更新内容」的版本号。
+        //
+        // 更新窗口只在**换了版本之后第一次**打开工作台时弹一次，判据就是这个
+        // 字段和当前版本号比 —— 不是一个「弹过了」的布尔：那样永远只弹一次，
+        // 之后每次更新都不弹了。空字符串表示从没看过（新装的第一进来就弹）。
+        public string LastSeenVersion = string.Empty;
+        // 媒体缩略图的磁盘缓存目录。
+        //
+        // **留空表示用默认**（mod 目录下的 `MediaCache/`）。
+        //
+        // 缓存放 mod 目录而不是谱面目录，是为了守住「只读模式打开谱面不产生
+        // 任何文件」那条 —— 往玩家的谱面目录里塞东西是越界，哪怕只是个 cache。
+        // 多张谱共用一份也没问题：缓存文件名里含源图的绝对路径，不会串。
+        public string MediaCacheDirectory = string.Empty;
+        // 选中一个事件时，是否把预览画面和时间轴一起挪过去。
+        //
+        // 默认关掉：点一下事件只是想改它的参数，画面跟着跳会打断正在看的
+        // 那一段。要「点哪看哪」的把它打开。
+        public bool FollowSelectionOnClick = false;
+        // 定位模式：在预览画面里点轨道，播放头立刻跳到那一格。
+        //
+        // 默认关。它改的是**点击**的含义（点轨道＝跳过去），和上面那个
+        // 「选中事件时跟随」是两件事：那个管时间轴上的事件块，这个管画面里的轨道。
+        // 快捷键 Ctrl+J。
+        public bool LocateOnTrackClick = false;
+        /// <summary>
+        /// 时间轴排版模式。
+        ///
+        /// · **固定排版（true）**：事件块的行号由类型优先级自动决定 ——
+        ///   移动装饰物 → 移动摄像头 → 滤镜 → 高级滤镜 → 其余，同类型内按时间先后
+        ///   自上而下紧凑排布；每次改完事件自动重排一次，手动拖出来的行号会被覆盖。
+        /// · **自由排版（false）**：行号完全归用户（拖动 / 撤销），保持现状。
+        ///
+        /// 标题行最右那颗「排版」按钮切换，快捷键 Ctrl+L。
+        /// </summary>
+        public bool FixedTimelineLayout = true;
+
+        // 时间轴的自动翻页已取消（0.34.0）：视图不再自己跟着播放头跑。
+        // 想回到播放头，用标题行那颗「定位到播放头」按钮（Ctrl+K）。
+        // 参数栏的显示缩放。参数栏是按 1920x1080 的设计尺寸排的，
+        // 在 1440p / 4K 上会显得比工作台其它面板小一号。
+        // 1.0 = 原始大小；面板不变大，里面的字和控件等比放大。
+        public float PropertyPanelScale = 1.5f;
+        // 时间轴上拖动事件块时，要不要吸附到格边界。
+        //
+        // 默认开：ADOFAI 里一格就是一拍，所以对齐格边界天然就是
+        // 节拍吸附，这正是做谱时绝大多数时候想要的。要微调时
+        // 按住 Alt 可临时反转，不用来回点开关。
+        public bool SnapTimelineDrag = true;
+        public float TimelineHeight = 292f;
+        public float TimelineRowHeight = 30f;
+
+        /// <summary>
+        /// 界面主题 Id。空 = 默认（黑白）。
+        ///
+        /// 现有两套（见 `UiTheme.Mono` / `UiTheme.Ember`）：`"mono"` 黑白、
+        /// `"ember"` 暖色。**存 Id 不存枚举**，以后加主题不用改存档格式。
+        /// </summary>
+        public string UiThemeId = string.Empty;
+
+        // ---------------------------------------------------------------- 联机
+        //
+        // 这三项只是「下次打开联机面板时预填什么」，不是联机状态本身——
+        // 会话是临时的，关掉工作台就断，没有东西需要持久化。
+
+        /// <summary>上次用的名字。省得每局都重打。</summary>
+        public string MultiplayerName = string.Empty;
+        /// <summary>开房/加入用的端口。0 = 还没设置过，回落到默认端口。</summary>
+        public int MultiplayerPort = 0;
+        /// <summary>上次连的地址。主机换了地址时要记得改。</summary>
+        public string MultiplayerAddress = string.Empty;
+
+        // ------------------------------------------------------ 参数栏下拉收藏
+        //
+        // 存的是**写入值** —— 缓速是枚举名（`OutExpo`）、高级滤镜是类名
+        // （`Gameplay.AdvancedFilter`），不是下拉里显示的那串中文。显示名
+        // 会随语言和主题变，写入值才是稳定的身份；存了显示名的话，换一套
+        // 语言之后收藏就全点不亮了。
+        //
+        // 用换行分隔的字符串而不是 `List<string>` 或 `Dictionary`：
+        // `XmlSerializer` 对这个类的集合字段一向只认字符串（见联机那几项），
+        // 而且 `Dictionary` 会直接抛「There was an error reflecting type」。
+        // 换行而不是逗号 —— 滤镜类名里将来冒出一个 `,` 也不会把一条拆成两条。
+        public string FavoriteEases = string.Empty;
+        public string FavoriteFilters = string.Empty;
+    }
+
+    internal static class EditorBridge
+    {
+        private static Type editorType;
+        private static FieldInfo instanceField;
+        private static PropertyInfo instanceProperty;
+        private static FieldInfo cameraField;
+        private static PropertyInfo cameraProperty;
+        private static bool searched;
+
+        /// <summary>ADOFAI 编辑器场景的名字（反编译确认：`scnEditor`）。</summary>
+        private const string EditorSceneName = "scnEditor";
+
+        /// <summary>
+        /// 现在是不是真的在编辑器里。
+        ///
+        /// **严格版**：活动场景必须是 `scnEditor`，**并且** `scnEditor.instance` 非空。
+        ///
+        /// 原来只判「instance 非空」就返回 true，再补一条「场景名里含 editor」
+        /// 的兜底 —— 两条都不够严：
+        ///   · `scnEditor.instance` 是静态单例，场景切走后字段可能还指着
+        ///     已销毁的对象，`GetEditorInstance()` 照样返回非 null；
+        ///   · 场景名兜底是 `IndexOf("editor")`，主菜单里任何带这个词的
+        ///     场景都会命中。
+        ///
+        /// 后果是「AES 入口按钮在主菜单也显示」。调用方（入口按钮、快捷键
+        /// 拦截）都要求**只在编辑器里生效**，所以按最严的判。
+        /// </summary>
+        public static bool IsEditorActive()
+        {
+            UnityEngine.SceneManagement.Scene active =
+                UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+            if (!active.IsValid() || !active.isLoaded)
+            {
+                return false;
+            }
+            // 场景必须就是编辑器场景。
+            if (!string.Equals(active.name, EditorSceneName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            // 场景对了还要实例活着 —— 加载过程中场景名先到位、实例后建。
+            return GetEditorInstance() != null;
+        }
+
+        public static object GetEditorInstance()
+        {
+            FindEditorType();
+            if (editorType == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                object instance = instanceField == null ? null : instanceField.GetValue(null);
+                if (instance == null && instanceProperty != null)
+                {
+                    instance = instanceProperty.GetValue(null, null);
+                }
+
+                return instance;
+            }
+            catch
+            {
+                // 场景切换期间，编辑器单例可能暂时失效。
+                return null;
+            }
+        }
+
+        public static Type GetEditorType()
+        {
+            FindEditorType();
+            return editorType;
+        }
+
+        public static Camera GetEditorCamera()
+        {
+            try
+            {
+                scrCamera cameraRig = scrCamera.instance;
+                if (cameraRig != null && cameraRig.camobj != null)
+                {
+                    return cameraRig.camobj;
+                }
+            }
+            catch
+            {
+                // 原生相机装置可能在场景切换期间重建。
+            }
+
+            object editor = GetEditorInstance();
+            if (editor == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                Camera camera = cameraProperty == null ? null : cameraProperty.GetValue(editor, null) as Camera;
+                if (camera == null && cameraField != null)
+                {
+                    camera = cameraField.GetValue(editor) as Camera;
+                }
+
+                return camera == null ? Camera.main : camera;
+            }
+            catch
+            {
+                return Camera.main;
+            }
+        }
+
+        public static Camera GetPreviewOutputCamera()
+        {
+            try
+            {
+                scrCamera cameraRig = scrCamera.instance;
+                if (cameraRig != null
+                    && cameraRig.Overlaycam != null
+                    && cameraRig.Overlaycam.gameObject.activeInHierarchy
+                    && cameraRig.camobj != null
+                    && cameraRig.camobj.targetTexture != null)
+                {
+                    return cameraRig.Overlaycam;
+                }
+            }
+            catch
+            {
+                // render-texture 相机栈可能在场景切换期间重建。
+            }
+
+            return GetEditorCamera();
+        }
+
+        private static void FindEditorType()
+        {
+            if (searched && editorType != null)
+            {
+                return;
+            }
+
+            searched = true;
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try
+                {
+                    editorType = assembly.GetType("scnEditor", false)
+                        ?? assembly.GetType("ADOFAI.scnEditor", false);
+                    if (editorType != null)
+                    {
+                        break;
+                    }
+                }
+                catch
+                {
+                    // 忽略动态程序集或未完全加载的程序集。
+                }
+            }
+
+            if (editorType != null)
+            {
+                const BindingFlags flags = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+                instanceField = editorType.GetField("instance", flags);
+                instanceProperty = editorType.GetProperty("instance", flags);
+
+                const BindingFlags instanceFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                cameraField = editorType.GetField("camera", instanceFlags);
+                cameraProperty = editorType.GetProperty("camera", instanceFlags);
+            }
+        }
+    }
+}

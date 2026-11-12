@@ -1,0 +1,10 @@
+﻿{
+  "Id": "ADOFAIEditorStudioX",
+  "DisplayName": "ADOFAI Editor Studio X",
+  "Author": "NIANNA",
+  "Version": "0.94.0",
+  "ManagerVersion": "0.32.5",
+  "AssemblyName": "ADOFAIEditorStudio.dll",
+  "EntryMethod": "ADOFAIEditorStudio.Main.Load",
+  "HomePage": "https://github.com/Adzuki-hd/ADOFAIEditorStudio"
+}

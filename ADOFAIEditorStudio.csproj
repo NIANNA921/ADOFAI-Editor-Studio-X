@@ -1,0 +1,130 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <!-- 可通过 -p:GameDir="游戏安装目录" 指定游戏目录；默认读取常见 Steam 安装位置。 -->
+    <GameDir Condition="'$(GameDir)' == ''">E:\SteamLibrary\steamapps\common\A Dance of Fire and Ice</GameDir>
+    <LangVersion>7.3</LangVersion>
+    <OutputType>Library</OutputType>
+    <AssemblyName>ADOFAIEditorStudio</AssemblyName>
+    <RootNamespace>ADOFAIEditorStudio</RootNamespace>
+    <!-- 和 Info.json 的 Version 保持一致。UMM 用的是 Info.json 那个，
+         这里只是程序集版本，两边对不上会让人分不清哪个是真的。 -->
+    <Version>0.94.0</Version>
+    <Nullable>disable</Nullable>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- ImGui 已整体删除（2026-10-24），不再需要 unsafe 代码。 -->
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- 游戏自己带的第一方 UI Extensions（含 UILineRenderer），
+         原版的 EaseGraphRenderer 就用它画缓速曲线。随游戏发布，
+         所以引用即可，不要拷贝到 Mods 目录。 -->
+    <Reference Include="Assembly-CSharp-firstpass">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\Assembly-CSharp-firstpass.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="DOTween">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\DOTween.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RDTools">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\RDTools.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityModManager\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityModManager">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityModManager\UnityModManager.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- 装饰物遮罩：SpriteMask 的排序范围（frontSortingOrder / backSortingOrder）
+         要按谱面的 maskingFrontDepth / maskingBackDepth 重算，缺了它
+         VisibleOutsideMask 会退化成整片可见。 -->
+    <Reference Include="UnityEngine.SpriteMaskModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.SpriteMaskModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.Physics2DModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.Physics2DModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- 复制群号要 GUIUtility.systemCopyBuffer，它在 IMGUIModule 里。
+         项目原来没引用这个程序集（界面全是 uGUI，用不到 IMGUI）。 -->
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ParticleSystemModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.ParticleSystemModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextCoreFontEngineModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.TextCoreFontEngineModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextCoreTextEngineModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.TextCoreTextEngineModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AssetBundleModule">
+      <HintPath>$(GameDir)\A Dance of Fire and Ice_Data\Managed\UnityEngine.AssetBundleModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The isolated frame-cache experiment must never enter the UMM Mod assembly. -->
+    <Compile Remove="FrameCacheSpike\\**" />
+    <Compile Remove="Backups\\**" />
+    <!-- tools 下面是自己用的离线工具（比如布局预览），不是模组的一部分。 -->
+    <Compile Remove="tools\\**" />
+    <!-- tests 下面是独立的测试工程（各自有自己的 csproj），绝不能被编进 mod 程序集。 -->
+    <Compile Remove="tests\\**" />
+    <None Remove="FrameCacheSpike\\**" />
+    <None Remove="Backups\\**" />
+    <None Remove="tools\\**" />
+    <None Remove="tests\\**" />
+  </ItemGroup>
+</Project>
