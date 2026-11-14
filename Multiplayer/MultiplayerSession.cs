@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net.Sockets;
 using ADOFAI;
@@ -262,8 +262,13 @@ namespace ADOFAIEditorStudio.Multiplayer
         /// </summary>
         private const float LoadingTimeoutSeconds = 45f;
 
+        /// <summary>连上 TCP 后等 HELLO/WELCOME 的最长时间；超时直接报房间不存在。</summary>
+        private const float HandshakeTimeoutSeconds = 10f;
+
         private static float finishLoadingAt;
         private static float loadingDeadline;
+        private static float handshakeDeadline;
+        private static float nextAutoSyncAt;
 
         /// <summary>
         /// 媒体齐了（或本来就不需要），开始收尾。
@@ -284,6 +289,63 @@ namespace ADOFAIEditorStudio.Multiplayer
             ChartTransfer.OpenSessionCopyInEditor();
             Main.Logger.Log("[联机] 内容已就绪，开始最后一次重载。");
             finishLoadingAt = UnityEngine.Time.unscaledTime + LoadingSettleSeconds;
+        }
+
+        private static void TickHandshake()
+        {
+            if (State != MultiplayerState.Connecting)
+            {
+                return;
+            }
+            if (hostLink != null && !hostLink.IsConnected)
+            {
+                FailJoin("无法加入：和主机的连接断开了。");
+                return;
+            }
+            if (handshakeDeadline > 0f && UnityEngine.Time.unscaledTime >= handshakeDeadline)
+            {
+                FailJoin("无法加入：房间不存在或主机没有响应。");
+            }
+        }
+
+        /// <summary>握手失败：保留错误提示，回到未联机状态。</summary>
+        private static void FailJoin(string message)
+        {
+            Main.Logger.Warning("[联机] " + message);
+            Stop(true);
+            LastError = message;
+            StatusText = null;
+        }
+
+        private static void TickAutoSync()
+        {
+            if (!MultiplayerAutoSyncSettings.Enabled
+                || Role != MultiplayerRole.Member
+                || State != MultiplayerState.Ready
+                || hostLink == null
+                || !hostLink.IsConnected)
+            {
+                nextAutoSyncAt = 0f;
+                return;
+            }
+
+            float interval = MultiplayerAutoSyncSettings.Minutes * 60f;
+            float now = UnityEngine.Time.unscaledTime;
+            if (nextAutoSyncAt <= 0f)
+            {
+                nextAutoSyncAt = now + interval;
+                return;
+            }
+            if (now >= nextAutoSyncAt)
+            {
+                nextAutoSyncAt = now + interval;
+                PullChart();
+            }
+        }
+
+        internal static void ResetAutoSyncTimer()
+        {
+            nextAutoSyncAt = 0f;
         }
 
         private static void TickLoading()
@@ -466,6 +528,7 @@ namespace ADOFAIEditorStudio.Multiplayer
                 name = localName,
                 protocol = ProtocolVersion
             });
+            handshakeDeadline = UnityEngine.Time.unscaledTime + HandshakeTimeoutSeconds;
 
             // **立刻切到会话副本，并把它在编辑器里打开。**
             //
@@ -493,13 +556,21 @@ namespace ADOFAIEditorStudio.Multiplayer
                 Main.Logger.Warning("[联机] " + LastError);
             }
 
-            BeginLoading("下载谱面中…");
+            // **不要在握手前开加载遮罩。** 连到一个不是 AES 主机的端口时，
+            // 永远等不到 WELCOME，旧逻辑会一直显示「下载媒体中」直到 45 秒超时。
+            // 现在先等握手，超时直接报错（见 TickHandshake）。
             StatusText = "正在握手…";
             return true;
         }
 
         /// <summary>断开并回到未联机状态。</summary>
         internal static void Stop()
+        {
+            Stop(false);
+        }
+
+        /// <summary>keepError = true 时保留 LastError，给「连接失败/超时」用。</summary>
+        internal static void Stop(bool keepError)
         {
             LanDiscovery.StopBroadcast();
 
@@ -545,7 +616,12 @@ namespace ADOFAIEditorStudio.Multiplayer
             Role = MultiplayerRole.None;
             State = MultiplayerState.Idle;
             StatusText = null;
-            LastError = null;
+            if (!keepError)
+            {
+                LastError = null;
+            }
+            handshakeDeadline = 0f;
+            nextAutoSyncAt = 0f;
             structuralDirty = false;
             nextAutoPush = 0f;
             mediaTotal = 0;
@@ -580,6 +656,8 @@ namespace ADOFAIEditorStudio.Multiplayer
             ChartTransfer.TickPendingApply();
             TickAutoPush();
             TickLoading();
+            TickHandshake();
+            TickAutoSync();
 
             // 主机：先收新进来的人。
             if (Role == MultiplayerRole.Host && listener != null)
@@ -918,6 +996,7 @@ namespace ADOFAIEditorStudio.Multiplayer
             {
                 return;
             }
+            handshakeDeadline = 0f;
 
             // **成员这一侧也必须查。** 新成员连旧主机时，旧主机不认识
             // 协议号、会照常回一条不带它的欢迎消息 —— 主机那边什么都不会
@@ -929,7 +1008,7 @@ namespace ADOFAIEditorStudio.Multiplayer
                     : "房主协议号 " + welcome.protocol + "，本机是 " + ProtocolVersion;
                 LastError = "连不上：" + why + "，联机双方必须用同一版本的 AES。";
                 Main.Logger.Log("[联机] " + LastError);
-                Stop();
+                Stop(true);
                 return;
             }
 
@@ -955,6 +1034,8 @@ namespace ADOFAIEditorStudio.Multiplayer
             {
                 // 用户刚点「加入」，意图很明确：就是要房主那份。
                 // 这里再弹一次「和你本地的不像同一张」纯属添堵。
+                // 握手成功后才显示加载遮罩；握手失败不会卡在「下载媒体中」。
+                BeginLoading("下载谱面中…");
                 OfferChart(welcome.chart, "主机", true);
             }
         }

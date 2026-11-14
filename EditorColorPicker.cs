@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using ADOFAIEditorStudio.Ui;
 using TMPro;
 using UnityEngine;
@@ -264,8 +264,8 @@ namespace ADOFAIEditorStudio
             field.lineType = TMP_InputField.LineType.SingleLine;
             field.richText = false;
             field.restoreOriginalTextOnEscape = false;
-            field.caretColor = Color.white;
-            field.selectionColor = new Color(1f, 1f, 1f, 0.25f);
+            field.caretColor = ADOFAIEditorStudio.Ui.UiTheme.Current.Caret;
+            field.selectionColor = ADOFAIEditorStudio.Ui.UiTheme.Current.SelectedFill;
             field.textViewport = rect;
 
             RectTransform textRect = Child("Text", rect, 6f, 0f, width - 12f, FieldHeight);

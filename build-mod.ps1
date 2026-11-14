@@ -25,7 +25,7 @@ if (-not (Test-Path $managed)) {
 
 # ── 版本必须只有一处真相 ───────────────────────────────────────────
 # Info.json 是 UMM 读的版本，csproj 是程序集版本。两边不一致时直接失败，
-# 避免出现「UMM 显示 0.94.0、DLL 里还是 0.39.5」这种问题。
+# 避免出现「UMM 显示 0.95.0、DLL 里还是 0.39.5」这种问题。
 $infoText = (Get-Content -LiteralPath $infoPath) -join [Environment]::NewLine
 $info = $infoText | ConvertFrom-Json
 $version = [string]$info.Version
@@ -46,10 +46,19 @@ if (-not $assemblyFile.EndsWith(".dll", [System.StringComparison]::OrdinalIgnore
 
 [xml]$projectXml = Get-Content $project -Raw
 $projectVersion = [string]$projectXml.Project.PropertyGroup.Version
-if ($projectVersion -ne $version) {
+# Info.json 允许 A/B/C 微调后缀（例如 0.95.0A），程序集版本只能是数字核。
+# 两边允许「完整版本 vs 数字核」，需要时把 csproj 规范化后再交给 dotnet。
+$versionCore = $version -replace '[A-Za-z]+$', ''
+if ($projectVersion -ne $version -and $projectVersion -ne $versionCore) {
     Write-Host ("Version mismatch: Info.json = " + $version + ", csproj = " + $projectVersion) -ForegroundColor Red
-    Write-Host "Change both to the same version before building." -ForegroundColor Red
+    Write-Host "Change both to the same numeric core before building." -ForegroundColor Red
     exit 1
+}
+if ($projectVersion -ne $versionCore) {
+    $projectText = [IO.File]::ReadAllText($project)
+    $projectText = [regex]::Replace($projectText, '<Version>.*?</Version>', "<Version>$versionCore</Version>")
+    [IO.File]::WriteAllText($project, $projectText, (New-Object System.Text.UTF8Encoding($true)))
+    $projectVersion = $versionCore
 }
 
 $required = @(
@@ -127,6 +136,22 @@ if (-not $SkipPackage) {
     Copy-Item (Join-Path $PSScriptRoot "AesIcon.rgba") $out -Force
     Copy-Item (Join-Path $PSScriptRoot "LICENSE") $out -Force
     Copy-Item $builtDll $out -Force
+    $font = Join-Path $PSScriptRoot "AesxFont.ttf"
+    if (Test-Path $font)
+    {
+        Copy-Item $font $out -Force
+    }
+    else
+    {
+        Write-Host "Warning: AesxFont.ttf not found; Paper theme will fall back to system font." -ForegroundColor Yellow
+    }
+
+    $lightLogo = Join-Path $PSScriptRoot "AesxLogoLight.png"
+    if (Test-Path $lightLogo)
+    {
+        Copy-Item $lightLogo $out -Force
+    }
+
     $logo = Join-Path $PSScriptRoot "AesxLogo.png"
     if (Test-Path $logo)
     {

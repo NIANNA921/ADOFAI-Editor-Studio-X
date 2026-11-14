@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using ADOFAIEditorStudio.Ui;
 using TMPro;
 using UnityEngine;
@@ -23,7 +23,7 @@ namespace ADOFAIEditorStudio.Multiplayer
         // ---------------------------------------------------------------- 面板尺寸
 
         private const float PanelWidth = 560f;
-        private const float PanelHeight = 520f;
+        private const float PanelHeight = 620f;
         private const float Pad = 20f;
         private const float RowHeight = 34f;
         private const float Gap = 10f;
@@ -46,6 +46,9 @@ namespace ADOFAIEditorStudio.Multiplayer
         private TextMeshProUGUI portLabel;
         /// <summary>未联机状态下的提示（开房被拒、加入失败等）。</summary>
         private TextMeshProUGUI pickLabel;
+        private Image autoSyncCheck;
+        private TMP_InputField autoSyncMinutesField;
+        private TextMeshProUGUI autoSyncMinuteLabel;
 
         private readonly List<MemberRow> memberRows = new List<MemberRow>();
         private int lastMemberFingerprint = -1;
@@ -99,12 +102,14 @@ namespace ADOFAIEditorStudio.Multiplayer
                 "名字", 13f, Palette.TextSecondary, TextAlignmentOptions.MidlineLeft, false);
             nameField = CreateInputField(contentRoot, Pad + 74f, row, PanelWidth - Pad * 2f - 74f, RowHeight,
                 "给自己起个名字");
+            nameField.characterLimit = 24;
 
             row += RowHeight + Gap;
             CreateText("PortLabel", contentRoot, Pad, row, 70f, RowHeight,
                 "端口", 13f, Palette.TextSecondary, TextAlignmentOptions.MidlineLeft, false);
             portField = CreateInputField(contentRoot, Pad + 74f, row, 96f, RowHeight,
                 DefaultPort.ToString());
+            portField.characterLimit = 5;
             CreateText("PortHint", contentRoot, Pad + 74f + 104f, row, PanelWidth - Pad * 2f - 178f, RowHeight,
                 "开房用这个端口；加入时地址里没写端口也用它", 11f, Palette.TextMuted,
                 TextAlignmentOptions.MidlineLeft, false);
@@ -130,6 +135,7 @@ namespace ADOFAIEditorStudio.Multiplayer
             joinGroup = CreateRect("JoinGroup", contentRoot, 0f, row, PanelWidth, 46f);
             addressField = CreateInputField(joinGroup, Pad, 0f, PanelWidth - Pad * 2f - 120f, 38f,
                 "主机地址，如 192.168.1.5:21587");
+            addressField.characterLimit = 48;
             CreateButton("JoinButton", joinGroup, Pad + PanelWidth - Pad * 2f - 110f, 0f, 110f, 38f, "加入",
                 delegate { DoJoin(); });
 
@@ -139,13 +145,15 @@ namespace ADOFAIEditorStudio.Multiplayer
             statusLabel = CreateText("Status", memberGroup, Pad, 0f, PanelWidth - Pad * 2f, 24f,
                 string.Empty, 13f, Palette.TextMuted, TextAlignmentOptions.MidlineLeft, false);
 
-            float memberTop = 30f;
+            float memberTop = 66f;
+            BuildAutoSyncRow(memberGroup);
+
             for (int i = 0; i < 8; i++)
             {
                 memberRows.Add(CreateMemberRow(memberGroup, memberTop + i * 30f));
             }
 
-            float buttonTop = PanelHeight - row - Pad - 96f;
+            float buttonTop = PanelHeight - row - Pad - 44f;
             // **没有「推送谱面」按钮了。**
             //
             // 改值走增量、结构改动自动整份推，两个方向都是自动的，
@@ -158,6 +166,88 @@ namespace ADOFAIEditorStudio.Multiplayer
             CreateButton("Leave", memberGroup, Pad + 140f, buttonTop, 100f, 34f, "断开",
                 delegate { MultiplayerSession.Stop(); });
 
+            RefreshAutoSyncUi();
+
+        }
+
+        /// <summary>自动同步开关 + 分钟输入框；只对成员显示。</summary>
+        private void BuildAutoSyncRow(RectTransform parent)
+        {
+            RectTransform row = CreateRect("AutoSyncRow", parent, 0f, 30f, PanelWidth, 30f);
+
+            RectTransform box = CreateRect("AutoSyncToggle", row, Pad, 4f, 22f, 22f);
+            Image background = box.gameObject.AddComponent<Image>();
+            background.sprite = roundedSprite;
+            background.type = Image.Type.Sliced;
+            background.color = Palette.FieldWell;
+            background.raycastTarget = true;
+            Outline rim = box.gameObject.AddComponent<Outline>();
+            rim.effectColor = new Color(1f, 1f, 1f, 0.10f);
+            rim.effectDistance = new Vector2(1f, -1f);
+
+            autoSyncCheck = CreateImage("Check", box, 5f, 5f, 12f, 12f,
+                Palette.Accent);
+            autoSyncCheck.sprite = roundedSprite;
+            autoSyncCheck.type = Image.Type.Sliced;
+            autoSyncCheck.raycastTarget = false;
+
+            Button button = box.gameObject.AddComponent<Button>();
+            button.targetGraphic = background;
+            button.transition = Selectable.Transition.None;
+            button.onClick.AddListener(delegate { ToggleAutoSync(); });
+
+            CreateText("AutoSyncLabel", row, Pad + 30f, 0f, 108f, 30f, "自动同步",
+                13f, Palette.TextSecondary, TextAlignmentOptions.MidlineLeft, false);
+
+            autoSyncMinutesField = CreateInputField(row, Pad + 145f, 1f, 54f, 28f, "5");
+            autoSyncMinutesField.characterLimit = 4;
+            autoSyncMinutesField.characterValidation = TMP_InputField.CharacterValidation.Integer;
+            autoSyncMinutesField.contentType = TMP_InputField.ContentType.IntegerNumber;
+            autoSyncMinutesField.onEndEdit.AddListener(CommitAutoSyncMinutes);
+
+            autoSyncMinuteLabel = CreateText("AutoSyncMinuteLabel", row, Pad + 205f, 0f, 80f, 30f,
+                "分钟一次", 12f, Palette.TextMuted, TextAlignmentOptions.MidlineLeft, false);
+        }
+
+        private void ToggleAutoSync()
+        {
+            MultiplayerAutoSyncSettings.Enabled = !MultiplayerAutoSyncSettings.Enabled;
+            MultiplayerSession.ResetAutoSyncTimer();
+            RefreshAutoSyncUi();
+        }
+
+        private void CommitAutoSyncMinutes(string value)
+        {
+            int minutes;
+            if (!int.TryParse(value, out minutes))
+            {
+                minutes = MultiplayerAutoSyncSettings.Minutes;
+            }
+            minutes = Mathf.Clamp(minutes, 1, 1440);
+            MultiplayerAutoSyncSettings.Minutes = minutes;
+            autoSyncMinutesField.text = minutes.ToString();
+            MultiplayerSession.ResetAutoSyncTimer();
+        }
+
+        private void RefreshAutoSyncUi()
+        {
+            bool enabled = MultiplayerAutoSyncSettings.Enabled;
+            if (autoSyncCheck != null)
+            {
+                autoSyncCheck.gameObject.SetActive(enabled);
+            }
+            if (autoSyncMinutesField != null)
+            {
+                if (!autoSyncMinutesField.isFocused)
+                {
+                    autoSyncMinutesField.text = MultiplayerAutoSyncSettings.Minutes.ToString();
+                }
+                autoSyncMinutesField.gameObject.SetActive(enabled);
+            }
+            if (autoSyncMinuteLabel != null)
+            {
+                autoSyncMinuteLabel.gameObject.SetActive(enabled);
+            }
         }
 
         private MemberRow CreateMemberRow(RectTransform parent, float y)
@@ -221,6 +311,7 @@ namespace ADOFAIEditorStudio.Multiplayer
                     portField.text = (saved >= 1 && saved <= 65535 ? saved : DefaultPort).ToString();
                 }
                 Refresh();
+                RefreshAutoSyncUi();
             }
         }
 
@@ -507,6 +598,9 @@ namespace ADOFAIEditorStudio.Multiplayer
             background.raycastTarget = true;
             background.sprite = roundedSprite;
             background.type = Image.Type.Sliced;
+
+            // 单行输入框必须有裁剪，否则长名字/长地址会画到框外面。
+            rect.gameObject.AddComponent<RectMask2D>();
 
             Outline rim = rect.gameObject.AddComponent<Outline>();
             rim.effectColor = new Color(1f, 1f, 1f, 0.10f);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -2634,11 +2634,11 @@ namespace ADOFAIEditorStudio
             {
                 helpFace.sprite = GetRoundedSprite(28, 14f, true, 2f);
                 helpFace.type = Image.Type.Simple;
-                helpFace.color = Color.white;
+                helpFace.color = TextSecondary;
             }
             helpButton.transition = Selectable.Transition.None;
             helpLabel.fontSize = 21f;
-            helpLabel.color = Color.white;
+            helpLabel.color = TextPrimary;
 
             BuildModeSwitch(header.rectTransform);
         }
@@ -2652,59 +2652,67 @@ namespace ADOFAIEditorStudio
         /// </summary>
         private void BuildModeSwitch(RectTransform parent)
         {
-            // **贴住顶边、去掉顶边那条描边。**
-            // 于是它读起来是「从顶栏上沿垂下来的一枚梯形标签」，
-            // 而不是一颗浮在带子中间的按钮。
-            const float height = 40f;
-            const float width = 150f;
+            bool native = UiTheme.Current.Id == UiTheme.Native.Id;
+            float height = native ? 40f : 28f;
+            float width = native ? 150f : 136f;
             float x = (DesignWidth - width) * 0.5f;
-            float y = 0f;
+            float y = native ? 0f : 7f;
 
-            // **倒梯形、纯黑填充、纯黑描边、没有别的颜色。**
-            //
-            // 形状用运行时生成的贴图（四边形 + 一圈描边）而不是矩形按钮：
-            // 用户明确要梯形，而 uGUI 的 Image 只能画矩形，除非自带网格。
-            // 一格 4 像素的贴图按原尺寸绘制，不会因为缩放糊掉。
             RectTransform rect = CreateTopLeftRect("ModeSwitch", parent, x, y, width, height);
             Image face = rect.gameObject.AddComponent<Image>();
-            // **只描边、不填充**：梯形内部透空，只有一圈纯黑描边。
-            face.sprite = GetTrapezoidSprite(
-                Mathf.RoundToInt(width), Mathf.RoundToInt(height), 11, 3,
-                Color.clear, Color.black);
-            face.type = Image.Type.Simple;
+            if (native)
+            {
+                // 原生主题保持原来的倒梯形描边，不做任何改动。
+                face.sprite = GetTrapezoidSprite(
+                    Mathf.RoundToInt(width), Mathf.RoundToInt(height), 11, 3,
+                    Color.clear, Color.black);
+                face.type = Image.Type.Simple;
+            }
+            else
+            {
+                // 纸白 / NEXT：普通圆角按钮。纸白用淡紫底，NEXT 用深灰底。
+                face.sprite = GetRoundedSprite(24, UiRadius.Md, false, 0f);
+                face.type = Image.Type.Sliced;
+                face.color = UiTheme.Current.SurfaceRaised;
+            }
             face.raycastTarget = true;
             Button button = rect.gameObject.AddComponent<Button>();
             button.targetGraphic = face;
             button.transition = Selectable.Transition.None;
             button.navigation = new Navigation { mode = Navigation.Mode.None };
-            // **点开的是弹窗，不是直接切换。**
-            //
-            // 原来点一下直接翻模式。可「切回只读」会顺带问「布局存了没有」，
-            // 那个确认框和模式切换是两件事，混在一次点击里读不出因果关系。
-            // 现在先开一个模式选择窗，用户明确点了哪一档才生效。
             button.onClick.AddListener(OpenModeSwitchWindow);
             modeSwitchButton = button;
 
-            // 文字 + 后面跟一枚「双向切换」图标。两者都是蓝色（用户指定），
-            // 所以文字不再靠 `TextPrimary` 上色 —— 那个现在是暖橙。
-            TextMeshProUGUI label = CreateText("Label", rect, 0f, 0f, width - 26f, height,
-                "编辑模式", UiType.Body, ModeSwitchColor, TextAlignmentOptions.Center, false);
+            TextMeshProUGUI label = CreateText("Label", rect, 0f, 0f, width - 24f, height,
+                "编辑模式", UiType.Body, ModeSwitchTextColor, TextAlignmentOptions.Center, false);
             modeSwitchLabel = label;
             modeSwitchState = null;
 
-            // 图标贴右边缘，垂直居中。**白色贴图 + `Image.color` 上蓝**，
-            // 和项目里其它自绘图标同一套。
             Sprite arrows = UiModeSwitchIcon.Get();
             if (arrows != null)
             {
                 Image icon = CreateImage("ModeSwitchIcon", rect,
-                    width - 26f, (height - 16f) * 0.5f, 16f, 16f, ModeSwitchColor);
+                    width - 24f, (height - 16f) * 0.5f, 16f, 16f, ModeSwitchTextColor);
                 icon.sprite = arrows;
                 icon.preserveAspect = true;
                 icon.raycastTarget = false;
             }
 
             RefreshModeSwitch();
+        }
+
+        private static Color ModeSwitchTextColor
+        {
+            get
+            {
+                if (UiTheme.Current.Id == UiTheme.Native.Id)
+                {
+                    return ModeSwitchColor;
+                }
+                return UiTheme.Current.Id == UiTheme.Paper.Id
+                    ? UiTheme.Current.ActionPrimary
+                    : UiTheme.Current.TextPrimary;
+            }
         }
 
         /// <summary>
@@ -2797,8 +2805,8 @@ namespace ADOFAIEditorStudio
             }
             modeSwitchState = state;
             modeSwitchLabel.text = state;
-            // 文字与图标统一蓝色（见 `ModeSwitchColor` 的说明）。
-            modeSwitchLabel.color = ModeSwitchColor;
+            // 文字与图标跟随当前主题，原生主题仍用原来的蓝色。
+            modeSwitchLabel.color = ModeSwitchTextColor;
         }
 
         // ── 模式切换弹窗 ────────────────────────────────────────────────────
@@ -2881,8 +2889,7 @@ namespace ADOFAIEditorStudio
 
             Image background = row.gameObject.AddComponent<Image>();
             background.color = current
-                ? new Color(1f, 1f, 1f, 0.10f)
-                : new Color(1f, 1f, 1f, 0.03f);
+                ? UiTheme.Current.HoverFill : Color.clear;
             ApplyRounded(background, UiRadius.Md, false, 0f);
             background.raycastTarget = true;
 
@@ -3145,63 +3152,33 @@ namespace ADOFAIEditorStudio
         /// </summary>
         private static readonly string VersionNotes = string.Join(Environment.NewLine, new[]
         {
-            "<size=20><b>v" + ModVersion + " 更新内容</b></size>",
+            "<size=20>v" + ModVersion + " 更新内容</size>",
             "",
-            "<b>0.94.0（AESX NEXT UI 版 · 基于 AES 0.40.0）</b>",
-            "<b>· 基于 AES 0.40.0</b>：轨道预览换成时间表（ChannelTimeline / FloorTrackState / AnimateTrackTranslator / NativeBackedTrackDomain）；修复散开归位、位移幅度、慢一拍、运镜偏格。",
-            "<b>· NEXT 主题</b>：默认主题为 AESX 的深灰配色（蓝色强调）；设置 → 常规设置 → 界面主题可在「NEXT / 原生」之间切换。原生 = AES 0.40.0 原本的纯灰阶主题。",
-            "<b>· 圆角</b>：面板 / 弹窗 / 按钮 / 输入框 / 行统一加圆角（大面 12px、控件 6px），不再全是直角。",
-            "<b>· 字体</b>：优先 Microsoft YaHei UI Light，字号刻度整体上调为 12 / 14 / 16 / 19 / 22 / 28。",
-            "<b>· 版本页</b>：顶部加入 AESX logo；窗口标题改为「版本说明」，修掉两条版本标题叠在一起。",
-            "<b>· 联机做谱</b>：开放主机直连。同一局域网自动发现房间；异地由主机映射 TCP 21587，加入方填 公网IP:端口。无服务器、无账号、无密码。",
-            "<b>· 新建事件掉到最底行</b>：新建块改为贴着同一时间段重叠块的下方；那段时间没块就落第 0 行，不再一路掉到全谱末尾。",
-            "<b>· 新建后时间轴跳底</b>：滚动目标改成播放头所在行，不再取全表最大行号。",
-            "<b>· 性能</b>：离屏设置页/装饰物页/媒体页停止每帧刷新和渲染；6 个设置页只刷新当前页；切页不再整块重建。",
-            "<b>· 按钮底色</b>：共用按钮的 targetGraphic 改为白色基底，由 ColorBlock 统一着色，避免底色重复相乘。",
+            "0.95.0 · 波形 / 浅色 UI / 联机",
+            "· 纸白淡紫：新增浅色主题，白色面板 + 淡紫强调；使用 Microsoft YaHei Light，关闭合成粗体；设置 → 常规设置 → 界面主题可切换。",
+            "· 浅色 UI 细节：顶部模式改成圆角按钮（NEXT 同步），版本页使用纸白专属 logo，帮助页加群提示移到底部。",
+            "· 联机：新增自动同步开关与分钟设置，加入失败不再卡在下载媒体。",
+            "· 配套工具：自动补丁程序同步更新到 0.95.0，支持给新版 AES 源码补 UnityWebRequest 引用。",
+            "· 时间轴波形：从谱面目录的 .ogg 完整解码，在标尺条里画连续包络。",
+            "· 重音吸附：拖块时 14 像素内的波形峰值优先吸附，Alt 可临时反转。",
+            "· 节拍网格：按 BPM 画节拍线，每四拍加粗，缩放太小时自动降采样。",
+            "· 性能：波形路径检查降到 1 秒一次，波形只在视口/音频变化时重建。",
             "",
-            "<b>0.39.5 修复（已包含）</b>",
-            "<b>· 装饰物停在默认贴图上</b>：预览记录的「已应用图片」初值是谱面里写的文件名，于是每帧的「不一样才换图」永远不成立，换图一次都没跑过。现在从哨兵值起步。",
-            "<b>· 缺图 / 图还没加载</b>：以前两种情况走同一条路，一并清空贴图。现在先看磁盘 —— 文件真不存在才清，文件在但还没进图库就等下一帧。",
-            "<b>· 空装饰物显示成占位方块</b>：原生进播放时才隐藏那个占位图，预览不走那条路。现在预览期间主动隐藏，退出时还原。",
-            "<b>· 装饰物没有尾焰</b>：原生在编辑器里会主动隐藏尾焰，预览需要它出现。现在预览期间打开。",
-            "<b>· LastPosition 被当成放置方式</b>：它只是「这次位移相对当前落点」，不是 placement 的取值。以前当放置方式处理，相对定位的装饰物位置会算错。",
-            "<b>· 钉在屏幕上的装饰物位置抖动</b>：位置恒定的（Camera / CameraAspect 相对）走 SetTrans，有位置动画的才走 SetPosition。",
+            "0.94.0 · AES 0.40.0 / 联机与 NEXT UI",
+            "· 基于 AES 0.40.0：轨道预览换成时间表实现，修复散开归位、位移幅度、慢一拍、运镜偏格。",
+            "· NEXT / 原生主题：默认 NEXT 深灰蓝，设置里可切回 AES 原生纯灰阶。",
+            "· UI：全局圆角、Microsoft YaHei UI Light、字号上调、版本页 logo。",
+            "· 联机：局域网发现 + TCP 21587 直连；远程端口映射已实测；支持手动/自动同步。",
+            "· 联机修复：加入失败会提示房间不存在/无响应，不再卡在下载媒体；输入框加裁剪与限长。",
+            "· 时间轴修复：新建事件不再掉到最底行，新建后滚动到播放头附近。",
+            "· 性能：离屏设置/装饰物/媒体页停止每帧刷新和渲染。",
             "",
-            "<b>0.39.3 修复</b>",
-            "<b>· 数字参数清空后变回 0</b>：把数字框清空提交，值会回落成 0，没法表示「这一项没设过」。现在单值 Float、Vector2 的 X/Y、FloatPair、Vector2Range 清空都写 NaN，框里保持空着；Int 没有 NaN，清空就恢复原值不写数据。",
-            "<b>· 重复清空多记一步撤销</b>：NaN 与 NaN 现在算相等，对已经空着的框再清空不会当成改过。",
+            "0.93.0 · AESX 首个稳定 UI 版",
+            "· 在 AES 0.39.5 上完成 NEXT UI、全局圆角、Light 字体和版本页 logo。",
+            "· 开放局域网联机与主机直连。",
+            "· 修复新建事件掉底行、时间轴跳全谱末尾。",
             "",
-            "<b>0.39.2 修复</b>",
-            "<b>· 事件块边缘光标指错方向</b>：拖事件块左右边缘改宽度时，指针显示成了上下箭头。现在分成两枚独立指针 —— 块边缘是左右箭头，时间轴顶边拖高度才是上下箭头。",
-            "",
-            "<b>0.39.1 修复</b>",
-            "<b>· 自动更新装上却还是旧版</b>：0.39.0 的安装包里带的版本号仍是 0.38.0，装完 UMM 里显示的还是旧版本，更新还会卡在「需手动重装」。这一版已重新打过包。",
-            "",
-            "<b>新增</b>",
-            "<b>· 主题系统</b>：设置 → 常规设置里多了一个「界面主题」下拉，可选「NEXT」（分层深灰 + 蓝色强调）和「原生」（AES 0.39.5 原本的纯灰阶）。默认是 NEXT，切换后整个工作台会重建一次。",
-            "<b>· 过渡动画</b>：左栏 8 个页改成传送带式，切换时整条横向滑动；设置窗口开合有淡入淡出；参数栏换事件时有一次淡入。",
-            "<b>· 删除粒子</b>：删事件块时按块的颜色炸出一簇粒子再消失。",
-            "<b>· 拖动拖尾</b>：拖动事件块时块跟手但带一点滞后，松手不会影响最终落点。",
-            "<b>· 滚动惯性</b>：滚轮改成速度叠加模型，连续滚会越滚越快，松手后自然衰减。Ctrl+滚轮缩放、Shift+滚轮横滚、Alt+滚轮调行高都是同一套。",
-            "<b>· 模式切换弹窗</b>：顶栏那颗模式按钮点开的是一个占屏 70% 的选择窗，里面列出「只读模式 / 编辑模式」并说明各自能做什么，点哪一档就切到哪一档。",
-            "<b>· 时间轴高度可拖</b>：顶边整条都是热区，鼠标移上去会变成上下双向箭头，顶上有一条淡灰细线标出位置。",
-            "",
-            "<b>修复</b>",
-            "<b>· 遮罩装饰物该消失却显示</b>：一件装饰物如果作者初始写成「不是遮罩」、后来某条移动事件才改成遮罩，原来它永远不会被当成遮罩处理 —— 被它裁的装饰物就整片显示出来。现在会正确识别。",
-            "<b>· 切主题后预览卡住</b>：重建工作台时会顺手关掉预览求值会话，导致画面冻在最后一帧。已修。",
-            "<b>· 多选删除后撤回不全 / 位置乱飞</b>：行号恢复的顺序错了，撤回回来的块会领到别人的行号，真正的主人反被挤到最下面。已修。",
-            "<b>· 弹窗点穿到预览</b>：开着设置窗口等弹窗时点预览区域，会选中最底下的装饰物。六扇窗口都补上了拦截。",
-            "<b>· 入口按钮在主菜单也显示</b>：现在要求活动场景就是编辑器场景才会出现。",
-            "<b>· 框选锚点钉在屏幕上</b>：拉框时滚动时间轴，锚点不跟着内容走，永远选不到滚过去之后的块。已修。",
-            "<b>· 参数栏、图标颜色</b>：视图锁、点事件跟随、定位到播放头、车道筛选这几颗图标在「开启」时误用了正文色，看着像一直处于激活态。已改用强调色 / 次要色。",
-            "",
-            "<b>调整</b>",
-            "<b>· 配色</b>：背景 #111111、面板 #151515；正文 #E0E0E0（NEXT）或 #F2F2F2（原生）。",
-            "<b>· 面板标题</b>：统一成纯色 #D4D4D4（NEXT）或 #F2F2F2（原生），时间轴标题也一并覆盖。",
-            "<b>· 铅笔画模块暂时隐藏</b>：入口按钮不显示，功能代码保留。",
-            "",
-            "<b>另外</b>",
-            "<b>· 独立测试工程</b>：工程文件读写加了一套自动检查，改坏保存逻辑会被当场发现。",
+            "历史版本：0.92 及更早的记录见 CHANGELOG.md。",
         });
 
         /// <summary>群号。ImGui 那扇说明窗口的标题也要用，所以是 internal。</summary>
@@ -3264,58 +3241,58 @@ namespace ADOFAIEditorStudio
         /// </summary>
         private static readonly string HelpText = string.Join(Environment.NewLine, new[]
         {
-            "<size=22><b>ADOFAI Editor Studio X</b></size>",
+            "<size=22>ADOFAI Editor Studio X</size>",
             "<size=14><color=#9aa4b2>给《A Dance of Fire and Ice》编辑器加的一套工作台</color></size>",
             "",
-            "<size=17><b>这个 MOD 是什么</b></size>",
+            "<size=17>这个 MOD 是什么</size>",
             "在原版编辑器旁边加一整套工作台：预览、时间线、参数编辑、媒体库、设置页。",
             "预览由它自己的求值器驱动，所以拖时间轴时画面即时跟着走，",
             "不必真的按播放 —— 这是它和「开原版播放再看」最大的区别。",
             "",
-            "<size=17><b>新功能</b></size>",
-            "<b>· 独立预览</b>：拖动即出画面，不受原版播放 / 暂停状态影响。",
-            "<b>· 时间线</b>：事件按类型分节。拖块改时间与时长；拖动中块跟着光标",
+            "<size=17>新功能</size>",
+            "· 独立预览：拖动即出画面，不受原版播放 / 暂停状态影响。",
+            "· 时间线：事件按类型分节。拖块改时间与时长；拖动中块跟着光标",
             "   走，松手回到该在的行；默认吸附到格（按住 Alt 临时关掉）。",
-            "<b>· 选择</b>：Ctrl+左键点选加选、从空白处拖动框选；点空白处取消全部。",
+            "· 选择：Ctrl+左键点选加选、从空白处拖动框选；点空白处取消全部。",
             "   选中的一批可以一起拖（整组按同一个位移走，各自的偏移不丢）。",
-            "<b>· 参数栏</b>：原生全部事件参数，含缓动曲线；标签按原生那套三段式",
+            "· 参数栏：原生全部事件参数，含缓动曲线；标签按原生那套三段式",
             "   本地化，和游戏里一致。",
-            "<b>· 调色盘</b>：饱和/明度方块 + 色相条 + 透明度条 + HEX + RGBA。",
+            "· 调色盘：饱和/明度方块 + 色相条 + 透明度条 + HEX + RGBA。",
             "   拖动跟手，松手才写进谱面。",
-            "<b>· 批量改参</b>：多选后只列公共属性，改一次落到整批，只记一步撤销。",
-            "<b>· 装饰物</b>：左栏列表管理；媒体库里的图片直接拖进画面即成装饰物。",
-            "<b>· 设置页</b>：歌曲 / 关卡 / 轨道 / 背景 / 摄像头 / 杂项，在工作台里直接改。",
-            "<b>· 撤销重做</b>：工作台有自己的历史 —— 拖进来的装饰物、批量改动、",
+            "· 批量改参：多选后只列公共属性，改一次落到整批，只记一步撤销。",
+            "· 装饰物：左栏列表管理；媒体库里的图片直接拖进画面即成装饰物。",
+            "· 设置页：歌曲 / 关卡 / 轨道 / 背景 / 摄像头 / 杂项，在工作台里直接改。",
+            "· 撤销重做：工作台有自己的历史 —— 拖进来的装饰物、批量改动、",
             "   拖块改的时间，都能一次撤回。",
-            "<b>· Ctrl+S 保存</b>：走原生 SaveLevel，存出来和原版逐字节一样；排版一起存进 .aesprj。",
-            "<b>· 入口按钮</b>：编辑器左下角那颗圆形按钮（或 F8）打开工作台。",
-            "<b>· 固定 / 自由排版</b>：设置窗口 → 常规设置，或 Ctrl+L。固定按事件类型自动分层，自由由你拖。",
+            "· Ctrl+S 保存：走原生 SaveLevel，存出来和原版逐字节一样；排版一起存进 .aesprj。",
+            "· 入口按钮：编辑器左下角那颗圆形按钮（或 F8）打开工作台。",
+            "· 固定 / 自由排版：设置窗口 → 常规设置，或 Ctrl+L。固定按事件类型自动分层，自由由你拖。",
             "",
-            "<size=17><b>快捷键</b></size>",
-            "<b>F8</b>                工作台开 / 关",
-            "<b>Esc</b>               关闭工作台（游玩中则是退出游玩）",
-            "<b>Space</b>             播放 / 暂停",
-            "<b>Ctrl+Z</b>            撤销",
-            "<b>Ctrl+Y</b>            重做（Ctrl+Shift+Z 同）",
-            "<b>Ctrl+S</b>            保存（谱面 + 排版）",
-            "<b>Ctrl+Alt+S</b>        只保存排版（.aesprj）",
-            "<b>Ctrl+K</b>            定位到播放头（横向滚过去）",
-            "<b>Ctrl+L</b>            固定排版 / 自由排版",
-            "<b>Ctrl+C / X / V</b>    复制 / 剪切 / 粘贴选中的事件",
-            "<b>Delete / Backspace</b>  删除选中",
-            "<b>Shift+C</b>           清除全部选中",
-            "<b>Ctrl+左键</b>         点选加选；从空白处拖动则框选",
-            "<b>点空白处</b>          清除全部选中",
+            "<size=17>快捷键</size>",
+            "F8                工作台开 / 关",
+            "Esc               关闭工作台（游玩中则是退出游玩）",
+            "Space             播放 / 暂停",
+            "Ctrl+Z            撤销",
+            "Ctrl+Y            重做（Ctrl+Shift+Z 同）",
+            "Ctrl+S            保存（谱面 + 排版）",
+            "Ctrl+Alt+S        只保存排版（.aesprj）",
+            "Ctrl+K            定位到播放头（横向滚过去）",
+            "Ctrl+L            固定排版 / 自由排版",
+            "Ctrl+C / X / V    复制 / 剪切 / 粘贴选中的事件",
+            "Delete / Backspace  删除选中",
+            "Shift+C           清除全部选中",
+            "Ctrl+左键         点选加选；从空白处拖动则框选",
+            "点空白处          清除全部选中",
             "",
-            "<size=16><b>时间轴</b></size>",
-            "<b>滚轮</b>              上下滚；没有纵向可滚时左右滚",
-            "<b>Shift+滚轮</b>        左右滚",
-            "<b>中键拖动</b>          平移",
-            "<b>Ctrl+滚轮</b>         缩放（Ctrl+= / Ctrl+- 同，Ctrl+0 复位）",
-            "<b>Alt+滚轮</b>          行高（Alt+= / Alt+- 同）",
-            "<b>点标尺 / 播放头</b>   拖动定位",
+            "<size=16>时间轴</size>",
+            "滚轮              上下滚；没有纵向可滚时左右滚",
+            "Shift+滚轮        左右滚",
+            "中键拖动          平移",
+            "Ctrl+滚轮         缩放（Ctrl+= / Ctrl+- 同，Ctrl+0 复位）",
+            "Alt+滚轮          行高（Alt+= / Alt+- 同）",
+            "点标尺 / 播放头   拖动定位",
             "",
-            "<size=16><b>调色盘</b></size>",
+            "<size=16>调色盘</size>",
             "拖方块 / 色相条 / 透明度条选色，松手才写进谱面；",
             "HEX 和 R G B A 也可以直接输入。",
             "",
@@ -3343,7 +3320,8 @@ namespace ADOFAIEditorStudio
         private void BuildHelpPanel(RectTransform parent)
         {
             helpWindow = BuildTextWindow(parent, "Help",
-                "加入 AESX交流群 " + QqGroupNumber, HelpText, OpenQqGroup, null, null, null);
+                string.Empty, HelpText, null,
+                "点击链接加入群聊【AESX交流群】：" + QqGroupNumber, OpenQqGroup, null);
         }
 
         private void BuildVersionWindow(RectTransform parent)
@@ -3356,14 +3334,17 @@ namespace ADOFAIEditorStudio
         }
 
         private Sprite versionLogoSprite;
+        private string versionLogoThemeId;
 
         /// <summary>读 mod 目录里的 AesxLogo.png。缺失时版本页只是不显示 logo，不影响打开。</summary>
         private Sprite LoadVersionLogo()
         {
-            if (versionLogoSprite != null)
+            string themeId = UiTheme.Current == null ? string.Empty : UiTheme.Current.Id;
+            if (versionLogoSprite != null && versionLogoThemeId == themeId)
             {
                 return versionLogoSprite;
             }
+            versionLogoThemeId = themeId;
             try
             {
                 string modPath = Main.Mod == null ? null : Main.Mod.Path;
@@ -3371,7 +3352,13 @@ namespace ADOFAIEditorStudio
                 {
                     return null;
                 }
-                string path = Path.Combine(modPath, "AesxLogo.png");
+                string fileName = UiTheme.Current != null && UiTheme.Current.Id == UiTheme.Paper.Id
+                    ? "AesxLogoLight.png" : "AesxLogo.png";
+                string path = Path.Combine(modPath, fileName);
+                if (!File.Exists(path) && fileName != "AesxLogo.png")
+                {
+                    path = Path.Combine(modPath, "AesxLogo.png");
+                }
                 if (!File.Exists(path))
                 {
                     Main.Logger.Log("[版本页] 找不到 logo：" + path);
@@ -3577,18 +3564,20 @@ namespace ADOFAIEditorStudio
 
             // 主题：**下拉菜单**，不是开关 —— 以后加第三套主题时开关就装不下了。
             AddSettingsDropdown(settingsGeneralPage, "界面主题", 44f,
-                new[] { UiTheme.Studio.DisplayName, UiTheme.Native.DisplayName },
+                new[] { UiTheme.Paper.DisplayName, UiTheme.Studio.DisplayName, UiTheme.Native.DisplayName },
                 delegate
                 {
-                    return UiTheme.Current != null
-                        && UiTheme.Current.Id == UiTheme.Native.Id ? 1 : 0;
+                    if (UiTheme.Current == null) return 0;
+                    if (UiTheme.Current.Id == UiTheme.Native.Id) return 2;
+                    if (UiTheme.Current.Id == UiTheme.Studio.Id) return 1;
+                    return 0;
                 },
-                delegate (int index) { ApplyUiTheme(index == 1); });
+                delegate (int index) { ApplyUiTheme(index); });
 
             TextMeshProUGUI hint = CreateText("LayoutHint", settingsGeneralPage,
                 0f, 90f, width - 8f, 96f,
                 "固定：按事件类型自动分层，自由：行号完全由你拖。\n"
-                + "主题：NEXT = 分层深灰 + 蓝色强调；原生 = AES 0.40.0 原本的纯灰阶。\n"
+                + "主题：纸白淡紫 = 白色面板 + 淡紫强调；NEXT = 分层深灰 + 蓝色强调；原生 = AES 0.40.0 原本的纯灰阶。\n"
                 + "排查用的开关（装饰物探针 / 简化遮罩 / 旧版遮罩）在「开发者」页。",
                 UiType.Body, TextMuted, TextAlignmentOptions.TopLeft, false);
             hint.overflowMode = TextOverflowModes.Overflow;
@@ -3895,7 +3884,7 @@ namespace ADOFAIEditorStudio
                 bool selected = i == current;
 
                 Image hover = CreateImage("DropRow" + i, rect, 0f, rowY, width, rowHeight,
-                    selected ? new Color(1f, 1f, 1f, 0.12f) : Color.clear);
+                    selected ? UiTheme.Current.SelectedFill : Color.clear);
                 ApplyRounded(hover, UiRadius.Sm, false, 0f);
                 hover.raycastTarget = true;
                 Button rowButton = hover.gameObject.AddComponent<Button>();
@@ -3908,7 +3897,7 @@ namespace ADOFAIEditorStudio
                     RefreshSettingsSwitches();
                     CloseSettingsDropdown();
                 });
-                AttachSettingsHover(hover.gameObject, hover, new Color(1f, 1f, 1f, 0.16f));
+                AttachSettingsHover(hover.gameObject, hover, UiTheme.Current.HoverFill);
 
                 TextMeshProUGUI optionLabel = CreateText("DropRowLabel" + i, rect,
                     12f, rowY, width - 24f, rowHeight, row.Options[i],
@@ -3950,7 +3939,7 @@ namespace ADOFAIEditorStudio
             UnityEngine.EventSystems.IPointerExitHandler
         {
             internal Image Fill;
-            internal Color HoverColor = new Color(1f, 1f, 1f, 0.08f);
+            internal Color HoverColor = UiTheme.Current.HoverFill;
 
             public void OnPointerEnter(UnityEngine.EventSystems.PointerEventData eventData)
             {
@@ -3989,20 +3978,22 @@ namespace ADOFAIEditorStudio
         /// 重建会丢掉一些瞬时状态（选中、滚动位置、打开的子窗口），所以只在
         /// 用户主动切换时做 —— 这也是它没做成"每帧检查"的原因。
         /// </summary>
-        private void ApplyUiTheme(bool native)
+        private void ApplyUiTheme(int index)
         {
             if (Main.Settings == null)
             {
                 return;
             }
-            string id = native ? UiTheme.Native.Id : UiTheme.Studio.Id;
+            UiTheme theme = index == 0 ? UiTheme.Paper
+                : (index == 2 ? UiTheme.Native : UiTheme.Studio);
+            string id = theme.Id;
             if (string.Equals(Main.Settings.UiThemeId, id, System.StringComparison.Ordinal))
             {
                 return;
             }
             Main.Settings.UiThemeId = id;
             Main.SaveSettings();
-            UiTheme.Select(native ? UiTheme.Native : UiTheme.Studio);
+            UiTheme.Select(theme);
             // 工作台没建起来时不用重建 —— 下次建的时候自然会读到新主题。
             if (built)
             {
@@ -4030,10 +4021,15 @@ namespace ADOFAIEditorStudio
                 }
                 if (row.Track != null)
                 {
-                    row.Track.color = on ? new Color(1f, 1f, 1f, 0.18f) : PanelRule;
+                    row.Track.color = on ? UiTheme.Current.ActionPrimary : PanelRule;
                 }
                 if (row.Knob != null)
                 {
+                    // 开启时滑块用「强调色上的文字色」，否则整颗药丸和滑块
+                    // 同色，看起来就像整块被涂满、分不出开关状态。
+                    row.Knob.color = on
+                        ? UiTheme.Current.TextOnAccent
+                        : UiTheme.Current.TextMuted;
                     // 24 是靠右（46 - 16 - 3 - 3），3 是靠左。
                     SetTopLeftRect(row.Knob.rectTransform, on ? 24f : 3f, 3f, 16f, 16f);
                 }
@@ -4078,7 +4074,7 @@ namespace ADOFAIEditorStudio
                     ? Selected
                     : new Color(0f, 0f, 0f, 0f);
                 settingsNavLabels[i].color = selected ? TextPrimary : TextSecondary;
-                settingsNavLabels[i].fontStyle = selected ? FontStyles.Bold : FontStyles.Normal;
+                settingsNavLabels[i].fontStyle = (selected && EditorStudioOverlay.AllowSyntheticBold) ? FontStyles.Bold : FontStyles.Normal;
             }
             if (settingsPageTitle != null)
             {
@@ -4319,7 +4315,7 @@ namespace ADOFAIEditorStudio
             field.lineType = TMP_InputField.LineType.SingleLine;
             field.navigation = new Navigation { mode = Navigation.Mode.None };
             field.customCaretColor = true;
-            field.caretColor = new Color(0.96f, 0.96f, 0.96f, 1f);
+            field.caretColor = UiTheme.Current.Caret;
             field.caretWidth = 2;
             field.caretBlinkRate = 0.85f;
             field.textViewport = fieldRect;
@@ -4633,14 +4629,14 @@ namespace ADOFAIEditorStudio
             Image trackImage = track.gameObject.AddComponent<Image>();
             trackImage.sprite = GetRoundedSprite(20, 5f, false, 0f);
             trackImage.type = Image.Type.Sliced;
-            trackImage.color = new Color(1f, 1f, 1f, 0.06f);
+            trackImage.color = UiTheme.Current.BorderOverlay;
             trackImage.raycastTarget = true;
 
             RectTransform handle = CreateTopLeftRect("Handle", track, 0f, 0f, scrollbarWidth, 60f);
             Image handleImage = handle.gameObject.AddComponent<Image>();
             handleImage.sprite = GetRoundedSprite(20, 5f, false, 0f);
             handleImage.type = Image.Type.Sliced;
-            handleImage.color = new Color(1f, 1f, 1f, 0.30f);
+            handleImage.color = UiTheme.Current.BorderStrong;
             handleImage.raycastTarget = true;
 
             EditorHelpScroll bar = track.gameObject.AddComponent<EditorHelpScroll>();
@@ -6216,7 +6212,7 @@ namespace ADOFAIEditorStudio
             // 反而显得"框外面还有一圈"；纯黑把画面衬出来更干净（用户选择）。
 
             // 框细一点：1px、18% 白。黑底上仍看得出边界，又不抢画面。
-            Color viewportBorder = new Color(1f, 1f, 1f, 0.18f);
+            Color viewportBorder = UiTheme.Current.BorderOverlay;
             CreateAnchoredLine("Top", stage.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), viewportBorder);
             CreateAnchoredLine("Bottom", stage.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 1f), viewportBorder);
             CreateAnchoredLine("Left", stage.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(1f, 0f), viewportBorder);
@@ -7211,7 +7207,7 @@ namespace ADOFAIEditorStudio
         /// <summary>
         /// 原生 transport 是不是正在放这一关（也就是"游玩中"）。
         ///
-        /// 判据是 <c>scnEditor.playMode</c> 这个计算属性。它在<b>求值器驱动的预览</b>
+        /// 判据是 <c>scnEditor.playMode</c> 这个计算属性。它在求值器驱动的预览
         /// 下报 false —— 求值器不碰原生 transport 的字段，所以拖时间轴取景、
         /// 静态预览这些编辑动作都不会被误判成游玩（见
         /// <c>EditorPlaybackBridge.ReadSnapshot</c> 顶部那条注释）。
@@ -7825,6 +7821,103 @@ namespace ADOFAIEditorStudio
             Main.Logger.Log("No active EventSystem was found; created a legacy-input fallback.");
         }
 
+        internal static bool AllowSyntheticBold
+        {
+            get { return UiTheme.Current == null || UiTheme.Current.Id != UiTheme.Paper.Id; }
+        }
+
+        private static TMP_FontAsset cachedBundledFont;
+        private static bool bundledFontTried;
+
+        /// <summary>
+        /// 读取 Mods\ADOFAIEditorStudioX\AesxFont.ttf（微软雅黑 Light 子集）。
+        /// 旧版 TMP 没有 byte[] 入口时返回 null，继续走系统字体。
+        /// </summary>
+        private static TMP_FontAsset TryLoadBundledFont()
+        {
+            if (bundledFontTried)
+            {
+                return cachedBundledFont;
+            }
+            bundledFontTried = true;
+            try
+            {
+                string modPath = Main.Mod == null ? null : Main.Mod.Path;
+                if (string.IsNullOrEmpty(modPath))
+                {
+                    return null;
+                }
+                string path = Path.Combine(modPath, "AesxFont.ttf");
+                if (!File.Exists(path))
+                {
+                    Main.Logger.Log("[字体] 找不到 " + path + "，使用系统字体");
+                    return null;
+                }
+                byte[] bytes = File.ReadAllBytes(path);
+                MethodInfo[] methods = typeof(TMP_FontAsset).GetMethods(
+                    BindingFlags.Public | BindingFlags.Static);
+                for (int i = 0; i < methods.Length; i++)
+                {
+                    MethodInfo method = methods[i];
+                    if (method.Name != "CreateFontAsset"
+                        || method.ReturnType != typeof(TMP_FontAsset))
+                    {
+                        continue;
+                    }
+                    ParameterInfo[] parameters = method.GetParameters();
+                    if (parameters.Length < 2
+                        || parameters[0].ParameterType != typeof(byte[]))
+                    {
+                        continue;
+                    }
+
+                    object[] args = new object[parameters.Length];
+                    for (int p = 0; p < parameters.Length; p++)
+                    {
+                        Type type = parameters[p].ParameterType;
+                        string name = (parameters[p].Name ?? string.Empty).ToLowerInvariant();
+                        if (p == 0) args[p] = bytes;
+                        else if (type == typeof(int))
+                        {
+                            if (name.Contains("padding")) args[p] = 4;
+                            else if (name.Contains("width") || name.Contains("height")) args[p] = 1024;
+                            else args[p] = 32;
+                        }
+                        else if (type == typeof(bool)) args[p] = true;
+                        else if (type.IsEnum)
+                        {
+                            string enumName = type.Name == "AtlasPopulationMode"
+                                ? "Dynamic" : "SDFAA";
+                            args[p] = Enum.Parse(type, enumName);
+                        }
+                        else args[p] = type.IsValueType ? Activator.CreateInstance(type) : null;
+                    }
+
+                    try
+                    {
+                        TMP_FontAsset asset = method.Invoke(null, args) as TMP_FontAsset;
+                        if (asset != null)
+                        {
+                            asset.name = "AESX_MicrosoftYaHeiLight";
+                            cachedBundledFont = asset;
+                            Main.Logger.Log("[字体] 使用内置 Microsoft YaHei Light：" + path);
+                            return asset;
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        Main.Logger.Log("[字体] 内置字体入口失败：" + exception.Message);
+                    }
+                }
+                Main.Logger.Warning("[字体] 当前 TMP 不支持从 byte[] 创建字体，回退系统字体");
+            }
+            catch (Exception exception)
+            {
+                Main.Logger.Warning("[字体] 读取内置字体失败：" + exception.Message);
+            }
+            return null;
+        }
+
         private static TMP_FontAsset cachedSystemFont;
 
         /// <summary>
@@ -7944,6 +8037,16 @@ namespace ADOFAIEditorStudio
             // 工作台读起来像一扇压在游戏上的外来窗口，而不是游戏
             // 的一部分，所以下面的字体链仍然留在游戏自己的字体里。密集
             // 时间轴文字的可读性改用阴影解决——见 ApplyTextShadow。
+            // 纸白淡紫使用内置的 Microsoft YaHei Light 子集；其他主题沿用系统字体。
+            if (UiTheme.Current != null && UiTheme.Current.Id == UiTheme.Paper.Id)
+            {
+                TMP_FontAsset bundled = TryLoadBundledFont();
+                if (bundled != null)
+                {
+                    return bundled;
+                }
+            }
+
             // **优先用系统字体**（用户要求）。失败时再退回游戏字体。
             TMP_FontAsset systemFont = TryCreateSystemFont();
             if (systemFont != null)
@@ -8384,6 +8487,12 @@ namespace ADOFAIEditorStudio
             {
                 return;
             }
+            // 浅色主题上黑字再叠黑阴影会糊成一团，纸白主题直接不用 underlay。
+            if (UiTheme.Current != null && UiTheme.Current.Id == UiTheme.Paper.Id)
+            {
+                text.fontMaterial.DisableKeyword(ShaderUtilities.Keyword_Underlay);
+                return;
+            }
             text.fontMaterial.EnableKeyword(ShaderUtilities.Keyword_Underlay);
             text.fontMaterial.SetColor(ShaderUtilities.ID_UnderlayColor, TextShadowColor);
             text.fontMaterial.SetFloat(ShaderUtilities.ID_UnderlayOffsetX, 0.55f);
@@ -8496,7 +8605,7 @@ namespace ADOFAIEditorStudio
             }
             text.text = value;
             text.fontSize = size;
-            text.fontStyle = bold ? FontStyles.Bold : FontStyles.Normal;
+            text.fontStyle = (bold && EditorStudioOverlay.AllowSyntheticBold) ? FontStyles.Bold : FontStyles.Normal;
             text.color = color;
             text.alignment = alignment;
             text.overflowMode = TextOverflowModes.Ellipsis;
@@ -8574,7 +8683,7 @@ namespace ADOFAIEditorStudio
             mediaSearchField.lineType = TMP_InputField.LineType.SingleLine;
             mediaSearchField.navigation = new Navigation { mode = Navigation.Mode.None };
             mediaSearchField.customCaretColor = true;
-            mediaSearchField.caretColor = new Color(0.960f, 0.960f, 0.960f, 1f);
+            mediaSearchField.caretColor = UiTheme.Current.Caret;
             mediaSearchField.caretWidth = 2;
             mediaSearchField.caretBlinkRate = 0.85f;
 

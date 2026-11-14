@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using ADOFAI;
@@ -1078,7 +1078,7 @@ namespace ADOFAIEditorStudio
             row.Name.color = UiTheme.Current.TextPrimary;
 
             row.Name.text = entry.DisplayName;
-            row.Name.fontStyle = selected ? FontStyles.Bold : FontStyles.Normal;
+            row.Name.fontStyle = (selected && EditorStudioOverlay.AllowSyntheticBold) ? FontStyles.Bold : FontStyles.Normal;
 
             // 名字和 tag 抢同一段横向空间。名字给大头（它才是用来分辨
             // 两个装饰物的），tag 只在确实有内容时才占一截。
@@ -1815,7 +1815,7 @@ namespace ADOFAIEditorStudio
             underlineRect.offsetMin = new Vector2(0f, 0f);
             underlineRect.offsetMax = new Vector2(0f, 1f);
             Image underline = underlineRect.gameObject.AddComponent<Image>();
-            underline.color = new Color(1f, 1f, 1f, 0.18f);
+            underline.color = UiTheme.Current.BorderOverlay;
             underline.raycastTarget = false;
 
             // 文本与占位符都铺满输入框（拉伸锚点），而不是左上锚点定尺寸。
@@ -1834,7 +1834,7 @@ namespace ADOFAIEditorStudio
             field.navigation = new Navigation { mode = Navigation.Mode.None };
             field.richText = false;
             field.customCaretColor = true;
-            field.caretColor = new Color(0.960f, 0.960f, 0.960f, 1f);
+            field.caretColor = UiTheme.Current.Caret;
             field.caretWidth = 2;
             field.caretBlinkRate = 0.85f;
             field.textViewport = rect;
@@ -1873,7 +1873,7 @@ namespace ADOFAIEditorStudio
             text.fontSize = size;
             text.color = color;
             text.alignment = alignment;
-            text.fontStyle = bold ? FontStyles.Bold : FontStyles.Normal;
+            text.fontStyle = (bold && EditorStudioOverlay.AllowSyntheticBold) ? FontStyles.Bold : FontStyles.Normal;
             text.textWrappingMode = TextWrappingModes.NoWrap;
             text.raycastTarget = false;
             EditorStudioOverlay.ApplyTextShadow(text);

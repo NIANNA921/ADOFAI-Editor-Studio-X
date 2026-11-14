@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
 using ADOFAI;
@@ -67,19 +67,19 @@ namespace ADOFAIEditorStudio
         // MonoBehaviour，为了取颜色向对方伸手，只会把两者绑死，没有任何好处。
         // 这里用的是各面板和时间轴共用的同一组中性色，
         // 好让参数栏读起来是同一块界面的一部分，而不是一套旧皮肤。
-        private static readonly Color RowStripe = new Color(1f, 1f, 1f, 0.030f);
-        private static readonly Color FieldFill = Palette.FieldWell;
-        private static readonly Color FieldBorder = new Color(1f, 1f, 1f, 0.10f);
-        private static readonly Color FieldBorderHover = new Color(1f, 1f, 1f, 0.20f);
+        private static Color RowStripe { get { return UiTheme.Current.RowStripe; } }
+        private static Color FieldFill { get { return Palette.FieldWell; } }
+        private static Color FieldBorder { get { return UiTheme.Current.BorderOverlay; } }
+        private static Color FieldBorderHover { get { return UiTheme.Current.BorderStrong; } }
         private static Color FieldBorderFocus { get { return UiTheme.Current.BorderFocus; } }
-        private static readonly Color LabelColor = Palette.TextSecondary;
+        private static Color LabelColor { get { return Palette.TextSecondary; } }
         private static Color LabelDisabled { get { return UiTheme.Current.TextDisabled; } }
-        private static readonly Color TextPrimary = Palette.TextPrimary;
+        private static Color TextPrimary { get { return Palette.TextPrimary; } }
         private static Color Placeholder { get { return UiTheme.Current.TextMuted; } }
-        private static readonly Color Accent = Palette.Accent;
+        private static Color Accent { get { return Palette.Accent; } }
         // caret 用白色，理由和面板边框一样：在近黑底色上，
         // 有颜色的 caret 会和自己要指示的文字抢注意力。
-        private static readonly Color CaretColor = new Color(0.960f, 0.960f, 0.960f, 1f);
+        private static Color CaretColor { get { return UiTheme.Current.Caret; } }
         private static Color SelectionColor
         {
             get
@@ -3352,7 +3352,7 @@ namespace ADOFAIEditorStudio
             background.sprite = GetRoundedSprite(24, UiRadius.Sm, false);
             background.type = Image.Type.Sliced;
             background.fillCenter = true;
-            background.color = Color.black;
+            background.color = UiTheme.Current.SurfaceWell;
             background.raycastTarget = true;
             Image rim = CreateChildImage("Rim", rect, 0f, 0f, width - 4f, ControlHeight);
             rim.sprite = GetRoundedSprite(24, UiRadius.Sm, true);
@@ -3597,7 +3597,7 @@ namespace ADOFAIEditorStudio
             background.sprite = GetRoundedSprite(24, UiRadius.Sm, false);
             background.type = Image.Type.Sliced;
             background.fillCenter = true;
-            background.color = Color.black;
+            background.color = UiTheme.Current.SurfaceWell;
             background.raycastTarget = true;
 
             rim = CreateChildImage("Rim", rect, 0f, 0f, rect.sizeDelta.x, rect.sizeDelta.y);
@@ -3723,7 +3723,7 @@ namespace ADOFAIEditorStudio
             viewportBackground.sprite = GetRoundedSprite(24, UiRadius.Sm, false);
             viewportBackground.type = Image.Type.Sliced;
             viewportBackground.fillCenter = true;
-            viewportBackground.color = Color.black;
+            viewportBackground.color = UiTheme.Current.SurfaceOverlay;
             viewportBackground.raycastTarget = true;
             viewportRect.gameObject.AddComponent<RectMask2D>();
 

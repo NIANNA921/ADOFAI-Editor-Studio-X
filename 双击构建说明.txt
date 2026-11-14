@@ -1,0 +1,11 @@
+﻿# ADOFAI Editor Studio X 构建说明
+
+1. 先把整个源码 ZIP 解压到一个普通文件夹。
+2. 打开解压后的 `ADOFAIEditorStudioX` 文件夹。
+3. 双击 `双击运行-自动构建.bat`。
+4. 黑色窗口会自动检查并编译，结束后按任意键关闭。
+5. 成功时，安装包在 `dist\ADOFAIEditorStudioX-v0.95.0.zip`。
+
+如果提示缺少 .NET SDK、.NET Framework 4.8 targeting pack、游戏 DLL 或 Unity Mod Manager，请把窗口截图发回来。
+
+游戏目录默认是：`E:\SteamLibrary\steamapps\common\A Dance of Fire and Ice`。

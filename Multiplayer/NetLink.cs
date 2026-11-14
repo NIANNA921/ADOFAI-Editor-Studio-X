@@ -89,16 +89,26 @@ namespace ADOFAIEditorStudio.Multiplayer
         {
             error = null;
             var link = new NetLink();
+            var tcp = new TcpClient();
             try
             {
-                var tcp = new TcpClient();
-                tcp.Connect(host, port);
+                // 同步 Connect 在地址不可达时可能阻塞十几秒，主线程会整个冻住。
+                // 给 6 秒上限；超时/拒绝都走同一条“无法加入”的错误路径。
+                IAsyncResult pending = tcp.BeginConnect(host, port, null, null);
+                if (!pending.AsyncWaitHandle.WaitOne(6000))
+                {
+                    error = "连接 " + host + ":" + port + " 超时（房间不存在或网络不可达）。";
+                    tcp.Close();
+                    return null;
+                }
+                tcp.EndConnect(pending);
                 link.Attach(tcp);
                 return link;
             }
             catch (Exception exception)
             {
                 error = "连接 " + host + ":" + port + " 失败：" + exception.Message;
+                tcp.Close();
                 link.Dispose();
                 return null;
             }

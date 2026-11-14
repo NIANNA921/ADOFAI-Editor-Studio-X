@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using ADOFAI;
@@ -774,10 +774,10 @@ private static float MinimumPixelsPerSecond
         // 与工作台的灰阶一致：以 #151515 为基准的中性灰，不带任何色偏。
         // 时间轴是屏幕上最大的表面，所以与工作台其余部分的任何偏差
         // 都会读成来自另一款程序的面板。
-        private static readonly Color PanelAlt = Palette.PanelAlt;
-        private static readonly Color ButtonNormal = Palette.ButtonNormal;
-        private static readonly Color ButtonHover = Palette.ButtonHover;
-        private static readonly Color Selected = Palette.Selected;
+        private static Color PanelAlt { get { return Palette.PanelAlt; } }
+        private static Color ButtonNormal { get { return Palette.ButtonNormal; } }
+        private static Color ButtonHover { get { return Palette.ButtonHover; } }
+        private static Color Selected { get { return Palette.Selected; } }
         // 主体卡片：比面板亮，略带透明。
         // 比面板（0.082）高一步，合成后约 0.134——足够让主体读成
         // 独立表面而不是一个洞，又足够柔和，不会和面板抢眼。
@@ -796,7 +796,7 @@ private static float MinimumPixelsPerSecond
         /// 这一段实际没有东西垫底，结果是游戏画面直接透过来 —— 齿标在、
         /// 背后是空的。这里直接铺模块那一档 #0B0B0B。
         /// </summary>
-        private static Color RulerStrip { get { return new Color(0.043f, 0.043f, 0.043f, 1f); } }
+        private static Color RulerStrip { get { return UiTheme.Current.SurfacePanel; } }
         // 分类框窗口的填充色：不透明，且与卡片同值，让各窗口读成
         // 一整块表面，而不是一排瓷砖。
         private static Color WindowFill { get { return UiTheme.Current.SurfacePanel; } }
@@ -805,10 +805,18 @@ private static float MinimumPixelsPerSecond
         // 标尺刻度和格线。从 0.16 的 alpha 提上来，那个值在面板上直接消失了，
         // 但仍远低于面板边框，让时间轴仍读成内容而不是
         // 又一层边框。
-        private static Color GridLineColor { get { return WithAlpha(Color.white, 0.10f); } }
-        private static readonly Color TextPrimary = Palette.TextPrimary;
-        private static readonly Color TextSecondary = Palette.TextSecondary;
-        private static readonly Color TextMuted = Palette.TextMuted;
+        private static Color GridLineColor
+        {
+            get
+            {
+                Color color = UiTheme.Current.TextMuted;
+                color.a = 0.16f;
+                return color;
+            }
+        }
+        private static Color TextPrimary { get { return Palette.TextPrimary; } }
+        private static Color TextSecondary { get { return Palette.TextSecondary; } }
+        private static Color TextMuted { get { return Palette.TextMuted; } }
         // 每条泳道一个色相，颜色一眼就能告诉你事件属于哪个家族。
         private static readonly float[] LaneBaseHues = { 0.53f, 0.72f, 0.42f, 0.94f, 0.10f, 0.58f, 0.26f };
         // 同一泳道里每个事件按自身 id 在色相上错开一点的幅度。
@@ -6315,7 +6323,7 @@ private static float MinimumPixelsPerSecond
             field.navigation = new Navigation { mode = Navigation.Mode.None };
             field.richText = false;
             field.customCaretColor = true;
-            field.caretColor = new Color(0.96f, 0.96f, 0.96f, 1f);
+            field.caretColor = UiTheme.Current.Caret;
             field.caretWidth = 2;
             field.caretBlinkRate = 0.85f;
             field.textViewport = host;
@@ -9091,6 +9099,8 @@ private static float MinimumPixelsPerSecond
         /// 比格吸附优先：看得见原点的线，就该吸得回原点。
         /// </summary>
         private const float OriginSnapPixels = 14f;
+        /// <summary>拖块时离波形峰值多少像素以内就吸过去。</summary>
+        private const float PeakSnapPixels = 14f;
 
         /// <summary>
         /// 开始拖一个块。
@@ -9902,7 +9912,7 @@ private static float MinimumPixelsPerSecond
                 RulerHeight - 1f,
                 bodyWidth,
                 1f,
-                WithAlpha(Color.white, 0.08f)
+                UiTheme.Current.BorderHairline
             ).raycastTarget = false;
             for (int i = 0; i < majorTickLabels.Count; i++)
             {
@@ -10001,7 +10011,7 @@ private static float MinimumPixelsPerSecond
             field.navigation = new Navigation { mode = Navigation.Mode.None };
             field.richText = false;
             field.customCaretColor = true;
-            field.caretColor = new Color(0.96f, 0.96f, 0.96f, 1f);
+            field.caretColor = UiTheme.Current.Caret;
             field.caretWidth = 2;
             field.caretBlinkRate = 0.85f;
             field.textViewport = host;
@@ -12925,7 +12935,14 @@ private static float MinimumPixelsPerSecond
 
             float before = Convert.ToSingle(floors[index - 1].entryTime);
             float after = Convert.ToSingle(floors[index].entryTime);
-            return (time - before) <= (after - time) ? before : after;
+            float floorSnap = (time - before) <= (after - time) ? before : after;
+            float peak;
+            if (TimelineWaveform.TryFindPeakNear(time,
+                PeakSnapPixels / Mathf.Max(1f, pixelsPerSecond), out peak))
+            {
+                return peak;
+            }
+            return floorSnap;
         }
 
         /// <summary>
@@ -12951,6 +12968,14 @@ private static float MinimumPixelsPerSecond
             if (Mathf.Abs(time - referenceStart) <= OriginSnapPixels / perSecond)
             {
                 return referenceStart;
+            }
+
+            float peak;
+            if (TimelineWaveform.TryFindPeakNear(time,
+                PeakSnapPixels / perSecond, out peak))
+            {
+                // 峰值优先：这是「自动吸附重音」的主路径。
+                return peak;
             }
 
             float baseTime = FloorTimeAtOrBefore(referenceStart);
@@ -13532,7 +13557,7 @@ private static float MinimumPixelsPerSecond
             laneFilterIcons[lane] = icon;
             if (icon != null)
             {
-                icon.color = laneVisible[lane] ? Color.white : new Color(1f, 1f, 1f, 0.28f);
+                icon.color = laneVisible[lane] ? UiTheme.Current.TextPrimary : WithAlpha(UiTheme.Current.TextPrimary, 0.28f);
             }
         }
 
@@ -13544,8 +13569,8 @@ private static float MinimumPixelsPerSecond
                 if (laneFilterIcons[i] != null)
                 {
                     laneFilterIcons[i].color = laneVisible[i]
-                        ? Color.white
-                        : new Color(1f, 1f, 1f, 0.28f);
+                        ? UiTheme.Current.TextPrimary
+                        : WithAlpha(UiTheme.Current.TextPrimary, 0.28f);
                 }
             }
         }
@@ -15622,6 +15647,13 @@ private static float MinimumPixelsPerSecond
         // 变成"一个对象里两百个四边形"。
         private VerticalLineStripGraphic gridLineGraphic;
         private VerticalLineStripGraphic tickLineGraphic;
+        private RawImage waveformGraphic;
+        private Texture2D waveformTexture;
+        private Color32[] waveformPixels;
+        private float waveformCacheStart = float.NaN;
+        private float waveformCacheWidth = -1f;
+        private float waveformCachePps = -1f;
+        private int waveformCacheVersion = -1;
 
         /// <summary>
         /// 画标尺：**刻度写的是格子编号**（`floor.seqID`），不是秒。
@@ -15638,6 +15670,7 @@ private static float MinimumPixelsPerSecond
                 return;
             }
             CollectRuler();
+            DrawWaveform();
 
             List<RulerTick> ticks = RulerTicks;
             EnsureTickGraphic();
@@ -15698,8 +15731,142 @@ private static float MinimumPixelsPerSecond
                     gridLineGraphic.AddLine(x, RulerHeight, 1f, gridHeight);
                     gridUsed++;
                 }
+                AddBeatGridLines(gridHeight);
             }
             gridLineGraphic.SubmitLines();
+        }
+
+        /// <summary>把当前歌曲的包络画在标尺那一条里；没有音频就保持空白。</summary>
+        private void DrawWaveform()
+        {
+            TimelineWaveform.Tick();
+            EnsureWaveformGraphic();
+            if (waveformGraphic == null || viewport == null)
+            {
+                return;
+            }
+
+            float width = Mathf.Max(1f, viewport.rect.width);
+            int version = TimelineWaveform.Version;
+            if (Mathf.Approximately(waveformCacheStart, viewStartTime)
+                && Mathf.Approximately(waveformCacheWidth, width)
+                && Mathf.Approximately(waveformCachePps, pixelsPerSecond)
+                && waveformCacheVersion == version)
+            {
+                return;
+            }
+
+            waveformCacheStart = viewStartTime;
+            waveformCacheWidth = width;
+            waveformCachePps = pixelsPerSecond;
+            waveformCacheVersion = version;
+
+            SetTopLeft(waveformGraphic.rectTransform, 0f, 0f, width, RulerHeight);
+            int textureWidth = waveformTexture.width;
+            int textureHeight = waveformTexture.height;
+            if (waveformPixels == null || waveformPixels.Length != textureWidth * textureHeight)
+            {
+                waveformPixels = new Color32[textureWidth * textureHeight];
+            }
+            for (int i = 0; i < waveformPixels.Length; i++)
+            {
+                waveformPixels[i] = new Color32(0, 0, 0, 0);
+            }
+
+            Color32 tint = UiTheme.Current.ActionPrimary;
+            tint.a = 175;
+            float visible = width / Mathf.Max(1f, pixelsPerSecond);
+            int center = textureHeight / 2;
+            if (TimelineWaveform.Ready)
+            {
+                for (int x = 0; x < textureWidth; x++)
+                {
+                    float time = viewStartTime + (x / (float)(textureWidth - 1)) * visible;
+                    float amplitude;
+                    TimelineWaveform.TryGetAmplitude(time, out amplitude);
+                    int half = Mathf.RoundToInt(
+                        Mathf.Clamp01(amplitude) * (textureHeight * 0.5f - 2f));
+                    int top = Mathf.Clamp(center - half, 0, textureHeight - 1);
+                    int bottom = Mathf.Clamp(center + half, 0, textureHeight - 1);
+                    for (int y = top; y <= bottom; y++)
+                    {
+                        waveformPixels[y * textureWidth + x] = tint;
+                    }
+                }
+            }
+            // 中心基准线：静音段也能看出时间轴的位置。
+            Color32 line = tint;
+            line.a = 80;
+            for (int x = 0; x < textureWidth; x++)
+            {
+                waveformPixels[center * textureWidth + x] = line;
+            }
+            waveformTexture.SetPixels32(waveformPixels);
+            waveformTexture.Apply(false, false);
+        }
+
+        private void EnsureWaveformGraphic()
+        {
+            if (waveformGraphic != null || rulerBackdrop == null)
+            {
+                return;
+            }
+            RectTransform rect = CreateRect("Waveform", rulerBackdrop,
+                0f, 0f, Mathf.Max(1f, viewport.rect.width), RulerHeight);
+            waveformGraphic = rect.gameObject.AddComponent<RawImage>();
+            waveformGraphic.color = Color.white;
+            waveformGraphic.raycastTarget = false;
+            waveformTexture = new Texture2D(1024, (int)RulerHeight,
+                TextureFormat.RGBA32, false);
+            waveformTexture.name = "AESX-Waveform";
+            waveformTexture.filterMode = FilterMode.Bilinear;
+            waveformTexture.wrapMode = TextureWrapMode.Clamp;
+            waveformTexture.hideFlags = HideFlags.DontSave;
+            waveformGraphic.texture = waveformTexture;
+            // 波形压在刻度和格号文字下面。
+            rect.SetAsFirstSibling();
+        }
+
+        /// <summary>按谱面 BPM 画节拍网格；每四拍加粗。</summary>
+        private void AddBeatGridLines(float gridHeight)
+        {
+            float bpm = ChartBpm;
+            if (bpm <= 0f || gridHeight <= 0f || viewport == null)
+            {
+                return;
+            }
+            float beat = 60f / bpm;
+            if (beat <= 0.0001f)
+            {
+                return;
+            }
+            float spacing = beat * pixelsPerSecond;
+            if (spacing < 8f)
+            {
+                beat *= 4f;
+                spacing *= 4f;
+                if (spacing < 8f)
+                {
+                    return;
+                }
+            }
+
+            float endTime = viewStartTime
+                + viewport.rect.width / Mathf.Max(1f, pixelsPerSecond);
+            int first = Mathf.CeilToInt(viewStartTime / beat);
+            int last = Mathf.FloorToInt(endTime / beat);
+            int guard = 0;
+            for (int i = first; i <= last && guard < 180; i++, guard++)
+            {
+                float time = i * beat;
+                float x = (time - viewStartTime) * pixelsPerSecond;
+                if (x < 0f || x > viewport.rect.width)
+                {
+                    continue;
+                }
+                gridLineGraphic.AddLine(x, RulerHeight,
+                    (i % 4 == 0) ? 2f : 1f, gridHeight);
+            }
         }
 
         private void EnsureGridGraphic()
@@ -15715,7 +15882,7 @@ private static float MinimumPixelsPerSecond
                 gridLayer != null ? gridLayer : blockLayer,
                 0f, 0f, bodyWidth, bodyHeight);
             gridLineGraphic = rect.gameObject.AddComponent<VerticalLineStripGraphic>();
-            gridLineGraphic.color = new Color(1f, 1f, 1f, 0.06f);
+            gridLineGraphic.color = GridLineColor;
             gridLineGraphic.raycastTarget = false;
         }
 
@@ -15736,7 +15903,7 @@ private static float MinimumPixelsPerSecond
             // **齿标要够亮。** 标尺底色是全透明的（靠模块底色透上来），
             // 1px / 22% 白 + 弱化文字叠在 #0B0B0B 上几乎看不见 ——
             // 用户反馈「齿标变透明了」就是这个。线和字都提一档。
-            tickLineGraphic.color = new Color(1f, 1f, 1f, 0.55f);
+            tickLineGraphic.color = WithAlpha(UiTheme.Current.TextMuted, 0.75f);
             tickLineGraphic.raycastTarget = false;
         }
 
@@ -16080,7 +16247,8 @@ private static float MinimumPixelsPerSecond
                     {
                         marker.Outline.color = dragMember && BlockOverlapsOthers(block.Event)
                             ? DragOverlapColor
-                            : Color.white;
+                            : (UiTheme.Current.Id == UiTheme.Paper.Id
+                                ? UiTheme.Current.ActionPrimary : Color.white);
                         SetTopLeft(marker.Outline.rectTransform, -1f, -1f,
                             width + 2f, blockHeight + 2f);
                     }
@@ -16526,7 +16694,7 @@ private static float MinimumPixelsPerSecond
             text.fontSize = size;
             text.color = color;
             text.alignment = alignment;
-            text.fontStyle = bold ? FontStyles.Bold : FontStyles.Normal;
+            text.fontStyle = (bold && EditorStudioOverlay.AllowSyntheticBold) ? FontStyles.Bold : FontStyles.Normal;
             text.textWrappingMode = TextWrappingModes.NoWrap;
             text.raycastTarget = false;
             EditorStudioOverlay.ApplyTextShadow(text);
